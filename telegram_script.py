@@ -1,30 +1,38 @@
+import requests
+from bs4 import BeautifulSoup
 import json
 import re
-from telegram_channel_viewer import channel
+from html import escape
+from datetime import datetime
 
-CHANNEL = 'sinavm'   # نام کانال (بدون @)
+CHANNEL = 'sinavm'
 LIMIT = 5
 
-def clean(text):
+def clean_text(text):
     if not text:
         return ""
     # حذف لینک‌های تصاویر
     text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
     # حذف مارک‌داون ساده
     text = re.sub(r'[*_`~>#]', '', text)
-    text = text.replace('\n', '<br>')
-    return text.strip()
+    text = text.strip()
+    return text
 
+url = f"https://t.me/s/{CHANNEL}"
 try:
-    ch = channel(CHANNEL)
-    posts = ch.messages[:LIMIT]
-    print(f"✅ {len(posts)} پست گرفته شد")
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    # پیدا کردن همه پست‌ها
+    messages = soup.find_all('div', class_='tgme_widget_message')
+    print(f"✅ {len(messages)} پست پیدا شد")
 except Exception as e:
-    print(f"❌ خطا: {e}")
-    posts = []
+    print(f"❌ خطا در دریافت صفحه: {e}")
+    messages = []
 
-# ساخت HTML با استایل کارتی و اطلاعات کامل
-html = f"""<!DOCTYPE html>
+# ساخت HTML با استایل کارتی
+html_out = f"""<!DOCTYPE html>
 <html dir="rtl">
 <head><meta charset="UTF-8"><title>آخرین پست‌های @{CHANNEL}</title>
 <style>
@@ -44,33 +52,64 @@ body {{background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0
 <h3 style="text-align:center;">📱 @{CHANNEL}</h3>
 """
 
-data = []
-for p in posts:
-    if not p.text or not p.text.strip():
+data_json = []
+count = 0
+for msg in messages:
+    if count >= LIMIT:
+        break
+    # استخراج متن
+    text_div = msg.find('div', class_='tgme_widget_message_text')
+    if not text_div:
         continue
-    clean_text = clean(p.text)
-    if not clean_text:
+    raw_text = text_div.get_text(strip=False)
+    clean_msg = clean_text(raw_text)
+    if not clean_msg:
         continue
-    date_str = p.date.strftime('%Y/%m/%d %H:%M') if p.date else 'تاریخ نامشخص'
-    link = f"https://t.me/{CHANNEL}/{p.id}"
-    html += f"""
+        
+    # استخراج تاریخ
+    date_tag = msg.find('time', class_='datetime')
+    if date_tag and date_tag.get('datetime'):
+        date_str = date_tag['datetime'].replace('T', ' ').split('+')[0]
+    else:
+        date_str = "تاریخ نامشخص"
+    
+    # استخراج لینک مستقیم پست
+    link_tag = msg.find('a', class_='tgme_widget_message_date')
+    if link_tag and link_tag.get('href'):
+        link = link_tag['href']
+    else:
+        link = f"https://t.me/{CHANNEL}"
+    
+    # محدود کردن طول متن برای نمایش (اختیاری)
+    if len(clean_msg) > 300:
+        clean_msg = clean_msg[:300] + '...'
+    
+    text_html = escape(clean_msg).replace('\n', '<br>')
+    
+    html_out += f"""
     <div class="card">
         <div class="channel">@{CHANNEL}</div>
         <div class="date">{date_str}</div>
-        <div class="text">{clean_text}</div>
+        <div class="text">{text_html}</div>
         <a href="{link}" class="link" target="_blank">مشاهده در تلگرام</a>
     </div>
     """
-    data.append({"text": p.text, "clean_text": clean_text, "date": date_str, "link": link})
+    data_json.append({
+        "text": raw_text,
+        "clean_text": clean_msg,
+        "date": date_str,
+        "link": link
+    })
+    count += 1
 
-if not data:
-    html += '<div class="card">هیچ پستی یافت نشد</div>'
+if not data_json:
+    html_out += '<div class="card">هیچ پستی یافت نشد</div>'
 
-html += '<div class="footer">به‌روزرسانی خودکار هر ۲ ساعت</div></div></body></html>'
+html_out += '<div class="footer">به‌روزرسانی خودکار هر ۲ ساعت</div></div></body></html>'
 
 with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-    f.write(html)
+    f.write(html_out)
 with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    json.dump(data, f, ensure_ascii=False, indent=2)
+    json.dump(data_json, f, ensure_ascii=False, indent=2)
 
-print("✅ فایل‌های زیبا ذخیره شدند")
+print("✅ فایل‌ها با موفقیت ذخیره شدند")

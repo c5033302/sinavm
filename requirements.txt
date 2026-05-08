@@ -1,1 +1,1 @@
-ez-telegram
+telegram-channel-viewer

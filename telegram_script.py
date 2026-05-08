@@ -7,22 +7,19 @@ from html import escape
 CHANNEL = 'sinavm'
 LIMIT = 5
 
-def clean_telegram_text(text):
-    """تمیز کردن کامل متن از لینک‌های تصاویر، مارک‌داون و کدهای اضافی"""
+def clean_text(text):
     if not text:
         return ""
     # حذف لینک‌های تصاویر [*![](...)](...)
     text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    # حذف لینک‌های معمولی [متن](لینک) - معمولاً در تلگرام لینک به صورت جداگانه است
+    # حذف لینک‌های معمولی [متن](لینک)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    # حذف ایموجی‌های یونیکد (اختیاری - اگر نمی‌خواهی ایموجی‌ها حذف شوند، این خط را بردار)
-    # text = re.sub(r'[^\w\s\u0600-\u06FF\uFB50-\uFDFF\uFE70-\uFEFF\u200c\u200d\u0621-\u064a\u0660-\u0669\u0020\u002E\u061F\u060C]', '', text)
-    # حذف کاراکترهای مارک‌داون
+    # حذف مارک‌داون ساده
     text = re.sub(r'[*_`~>#-]', '', text)
-    # حذف فاصله‌های اضافی و خطوط خالی
     text = re.sub(r'\n\s*\n', '\n', text)
     return text.strip()
 
+# دریافت پست‌ها
 url = f"https://t.me/s/{CHANNEL}"
 try:
     response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
@@ -34,9 +31,36 @@ except Exception as e:
     print(f"❌ خطا: {e}")
     messages = []
 
-# HTML با استایل خیلی حرفه‌ای (شبیه تلگرام)
-html_out = f"""<!DOCTYPE html>
-<html dir="rtl">
+# آماده‌سازی داده‌ها
+posts_data = []
+count = 0
+for msg in messages:
+    if count >= LIMIT:
+        break
+    text_div = msg.find('div', class_='tgme_widget_message_text')
+    if not text_div:
+        continue
+    raw_text = text_div.get_text(strip=False)
+    clean_msg = clean_text(raw_text)
+    if not clean_msg:
+        continue
+
+    date_tag = msg.find('time', class_='datetime')
+    date_str = date_tag['datetime'].replace('T', ' ').split('+')[0] if date_tag and date_tag.get('datetime') else 'تاریخ نامشخص'
+
+    link_tag = msg.find('a', class_='tgme_widget_message_date')
+    link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{CHANNEL}"
+
+    posts_data.append({
+        "text_html": escape(clean_msg).replace('\n', '<br>'),
+        "date": date_str,
+        "link": link
+    })
+    count += 1
+
+# ---------- ساخت HTML با CSS و JS داخلی (بسیار زیبا) ----------
+html_output = f"""<!DOCTYPE html>
+<html lang="fa" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -47,48 +71,74 @@ html_out = f"""<!DOCTYPE html>
             padding: 0;
             box-sizing: border-box;
         }}
+
         body {{
             background: #eef2f7;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Tahoma, sans-serif;
-            padding: 16px;
+            padding: 20px 12px 40px;
             direction: rtl;
         }}
+
         .container {{
             max-width: 700px;
             margin: 0 auto;
         }}
+
+        /* header */
+        .header {{
+            text-align: center;
+            margin-bottom: 24px;
+        }}
+        .channel-badge {{
+            display: inline-flex;
+            align-items: center;
+            background: white;
+            padding: 8px 20px;
+            border-radius: 60px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            gap: 10px;
+        }}
+        .channel-badge span {{
+            font-size: 28px;
+        }}
+        .channel-badge h1 {{
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e2a3a;
+        }}
+
+        /* کارت پست */
         .card {{
             background: white;
-            border-radius: 20px;
-            margin-bottom: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.02);
-            transition: transform 0.2s, box-shadow 0.2s;
+            border-radius: 24px;
+            margin-bottom: 18px;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.08);
+            transition: all 0.2s ease;
             overflow: hidden;
         }}
         .card:hover {{
-            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-            transform: translateY(-1px);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
         }}
         .card-header {{
             display: flex;
             align-items: center;
-            padding: 14px 16px 8px 16px;
+            padding: 14px 18px 8px;
             border-bottom: 1px solid #f0f2f5;
         }}
         .avatar {{
-            width: 36px;
-            height: 36px;
+            width: 40px;
+            height: 40px;
             background: linear-gradient(135deg, #29b6f6, #0288d1);
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: bold;
-            font-size: 18px;
+            font-size: 20px;
             margin-left: 12px;
         }}
-        .channel-info {{
+        .meta {{
             flex: 1;
         }}
         .channel-name {{
@@ -96,129 +146,113 @@ html_out = f"""<!DOCTYPE html>
             font-size: 15px;
             color: #1e2a3a;
             text-decoration: none;
-            display: inline-block;
-        }}
-        .channel-name:hover {{
-            text-decoration: underline;
         }}
         .date {{
             font-size: 11px;
             color: #8e9eae;
             margin-top: 2px;
         }}
-        .message-text {{
-            padding: 12px 16px;
-            font-size: 14.5px;
+        .message-body {{
+            padding: 14px 18px;
+            font-size: 15px;
             line-height: 1.55;
             color: #1e2a3a;
             word-wrap: break-word;
             white-space: pre-wrap;
-            background: white;
         }}
-        .message-link {{
-            display: inline-block;
-            margin: 0 16px 16px 16px;
-            background: #e9f0f5;
+        .actions {{
+            padding: 0 18px 14px 18px;
+            display: flex;
+            gap: 12px;
+        }}
+        .btn {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f0f4f9;
+            border: none;
             padding: 6px 14px;
-            border-radius: 40px;
+            border-radius: 30px;
             font-size: 12.5px;
             color: #126fa3;
             text-decoration: none;
+            cursor: pointer;
             transition: background 0.2s;
+            font-family: inherit;
         }}
-        .message-link:hover {{
-            background: #d4e2ed;
+        .btn:hover {{
+            background: #e3eaf1;
         }}
         .footer {{
             text-align: center;
-            font-size: 11px;
-            color: #9aaebf;
-            margin: 24px 0 16px;
-            padding-top: 8px;
-            border-top: 1px solid #dce5ec;
+            margin-top: 28px;
+            padding-top: 16px;
+            border-top: 1px solid #d0dbe6;
+            color: #8e9eae;
+            font-size: 12px;
         }}
         @media (max-width: 550px) {{
             body {{ padding: 12px; }}
-            .card-header {{ padding: 12px 14px 6px; }}
-            .message-text {{ padding: 10px 14px; font-size: 14px; }}
+            .card-header {{ padding: 10px 14px 6px; }}
+            .message-body {{ padding: 12px 14px; font-size: 14px; }}
         }}
     </style>
 </head>
 <body>
 <div class="container">
-    <div style="background: white; border-radius: 28px; padding: 12px 20px; margin-bottom: 20px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-        <span style="font-size: 24px;">📱</span>
-        <h2 style="display: inline-block; font-size: 20px; margin-right: 8px; font-weight: 600;">آخرین پست‌های @{CHANNEL}</h2>
+    <div class="header">
+        <div class="channel-badge">
+            <span>📱</span>
+            <h1>@{CHANNEL}</h1>
+        </div>
     </div>
-"""
 
-data_json = []
-count = 0
-for msg in messages:
-    if count >= LIMIT:
-        break
-    text_div = msg.find('div', class_='tgme_widget_message_text')
-    if not text_div:
-        continue
-    raw_text = text_div.get_text(strip=False)
-    clean_msg = clean_telegram_text(raw_text)
-    if not clean_msg or len(clean_msg) < 2:
-        continue
-    
-    # استخراج تاریخ
-    date_tag = msg.find('time', class_='datetime')
-    if date_tag and date_tag.get('datetime'):
-        date_str = date_tag['datetime'].replace('T', ' ').split('+')[0].replace('-', '/')
-    else:
-        date_str = "تاریخ نامشخص"
-    
-    # استخراج لینک مستقیم پست
-    link_tag = msg.find('a', class_='tgme_widget_message_date')
-    link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{CHANNEL}"
-    
-    # تبدیل لاین بریک به <br> و ایموجی‌ها را نگه می‌دارد
-    text_html = escape(clean_msg).replace('\n', '<br>')
-    
-    # گاهی متن طولانی را محدود کن (اگه خیلی بلند بود، می‌توانی عدد را زیاد کنی)
-    if len(text_html) > 800:
-        text_html = text_html[:800] + '...'
-    
-    html_out += f"""
-    <div class="card">
+    {''.join(f'''
+    <div class="card" data-link="{post['link']}">
         <div class="card-header">
             <div class="avatar">📢</div>
-            <div class="channel-info">
+            <div class="meta">
                 <a href="https://t.me/{CHANNEL}" class="channel-name" target="_blank">@{CHANNEL}</a>
-                <div class="date">{date_str}</div>
+                <div class="date">{post['date']}</div>
             </div>
         </div>
-        <div class="message-text">{text_html}</div>
-        <a href="{link}" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
+        <div class="message-body">{post['text_html']}</div>
+        <div class="actions">
+            <a href="{post['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="{escape(post['text_html'].replace('<br>', '\n'))}">📋 کپی متن</button>
+        </div>
     </div>
-    """
-    data_json.append({
-        "text": raw_text,
-        "clean_text": clean_msg,
-        "date": date_str,
-        "link": link
-    })
-    count += 1
+    ''' for post in posts_data)}
 
-if not data_json:
-    html_out += '<div class="card" style="text-align:center; padding:32px;">📭 هیچ پستی یافت نشد</div>'
-
-html_out += f"""
     <div class="footer">
-        منبع: https://t.me/{CHANNEL} • به‌روزرسانی خودکار هر ۲ ساعت
+        منبع: t.me/{CHANNEL} • به‌روزرسانی خودکار هر ۲ ساعت
     </div>
 </div>
+
+<script>
+    // کپی کردن متن با جاوااسکریپت
+    document.querySelectorAll('.copy-btn').forEach(btn => {{
+        btn.addEventListener('click', function(e) {{
+            const text = this.getAttribute('data-text');
+            navigator.clipboard.writeText(text).then(() => {{
+                const originalText = this.innerHTML;
+                this.innerHTML = '✅ کپی شد!';
+                setTimeout(() => {{ this.innerHTML = originalText; }}, 1500);
+            }}).catch(() => {{
+                alert('خطا در کپی');
+            }});
+        }});
+    }});
+</script>
 </body>
 </html>
 """
 
+# ذخیره فایل
 with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-    f.write(html_out)
-with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    json.dump(data_json, f, ensure_ascii=False, indent=2)
+    f.write(html_output)
 
-print("✅ فایل‌ها با موفقیت ذخیره شدند")
+with open('posts_formatted.json', 'w', encoding='utf-8') as f:
+    json.dump(posts_data, f, ensure_ascii=False, indent=2)
+
+print("✅ فایل‌های زیبا و حرفه‌ای ذخیره شدند")

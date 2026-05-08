@@ -1,91 +1,76 @@
-import html
 import json
 import re
-from ez_telegram import EzClient
-from markdown import markdown
-from bs4 import BeautifulSoup
+from telegram_channel_viewer import channel
 
-channel_username = 'sinavm'
+CHANNEL = 'sinavm'   # نام کانال (بدون @)
 LIMIT = 5
 
-def markdown_to_plain_text(md_text):
-    """تبدیل متن مارک‌داون به متن ساده"""
-    if not md_text:
+def clean(text):
+    if not text:
         return ""
-    # تبدیل مارک‌داون به HTML
-    html_content = markdown(md_text, extensions=['nl2br'])
-    # استخراج متن ساده از HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
-    plain = soup.get_text()
-    # حذف لینک‌های اضافی باقی‌مانده
-    plain = re.sub(r'\[.*?\]\(.*?\)', '', plain)
-    # حذف کاراکترهای اضافی
-    plain = re.sub(r'[*_`~>#]', '', plain)
-    # حذف خطوط تکراری
-    plain = re.sub(r'\n\s*\n', '\n', plain)
-    return plain.strip()
+    # حذف لینک‌های تصاویر
+    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
+    # حذف مارک‌داون ساده
+    text = re.sub(r'[*_`~>#]', '', text)
+    text = text.replace('\n', '<br>')
+    return text.strip()
 
-client = EzClient()
 try:
-    all_msgs = client.get_messages(channel_username)
-    messages = all_msgs[:LIMIT] if len(all_msgs) > LIMIT else all_msgs
-    print(f"✅ {len(messages)} پست گرفته شد")
+    ch = channel(CHANNEL)
+    posts = ch.messages[:LIMIT]
+    print(f"✅ {len(posts)} پست گرفته شد")
 except Exception as e:
     print(f"❌ خطا: {e}")
-    messages = []
+    posts = []
 
-# HTML با استایل مشابه قبل (بدون تغییر)
-html_out = """<!DOCTYPE html>
+# ساخت HTML با استایل کارتی و اطلاعات کامل
+html = f"""<!DOCTYPE html>
 <html dir="rtl">
-<head><meta charset="UTF-8"><title>آخرین پست‌ها</title>
+<head><meta charset="UTF-8"><title>آخرین پست‌های @{CHANNEL}</title>
 <style>
-body {background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0;}
-.container {max-width:700px; margin:0 auto;}
-.card {background:white; border-radius:16px; padding:16px; margin-bottom:18px; box-shadow:0 2px 8px rgba(0,0,0,0.08);}
-.channel {font-weight:bold; color:#1e88e5; font-size:16px;}
-.date {font-size:12px; color:#888; margin:6px 0;}
-.text {margin:12px 0; line-height:1.6; word-break:break-word; white-space:pre-wrap;}
-.link {display:inline-block; background:#e3f2fd; padding:6px 14px; border-radius:30px; text-decoration:none; font-size:13px; color:#0b5e7e;}
-.link:hover {background:#bbdefb;}
-.footer {text-align:center; font-size:12px; color:#888; margin-top:20px;}
+body {{background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0;}}
+.container {{max-width:700px; margin:0 auto;}}
+.card {{background:white; border-radius:16px; padding:16px; margin-bottom:18px; box-shadow:0 2px 8px rgba(0,0,0,0.08);}}
+.channel {{font-weight:bold; color:#1e88e5; font-size:16px;}}
+.date {{font-size:12px; color:#888; margin:6px 0;}}
+.text {{margin:12px 0; line-height:1.6; word-break:break-word;}}
+.link {{display:inline-block; background:#e3f2fd; padding:6px 14px; border-radius:30px; text-decoration:none; font-size:13px; color:#0b5e7e;}}
+.link:hover {{background:#bbdefb;}}
+.footer {{text-align:center; font-size:12px; color:#888; margin-top:20px;}}
 </style>
 </head>
 <body>
 <div class="container">
-<h3 style="text-align:center;">📱 @{channel_username}</h3>
+<h3 style="text-align:center;">📱 @{CHANNEL}</h3>
 """
 
-data_json = []
-for msg in messages:
-    if not msg or not msg.strip():
+data = []
+for p in posts:
+    if not p.text or not p.text.strip():
         continue
-    raw_text = msg.strip()
-    clean_text = markdown_to_plain_text(raw_text)
+    clean_text = clean(p.text)
     if not clean_text:
         continue
-    if len(clean_text) > 300:
-        clean_text = clean_text[:300] + '...'
-    text = html.escape(clean_text).replace('\n', '<br>')
-    link = f"https://t.me/{channel_username}"
-    date_str = "تاریخ نامشخص"
-    html_out += f"""
+    date_str = p.date.strftime('%Y/%m/%d %H:%M') if p.date else 'تاریخ نامشخص'
+    link = f"https://t.me/{CHANNEL}/{p.id}"
+    html += f"""
     <div class="card">
-        <div class="channel">@{channel_username}</div>
+        <div class="channel">@{CHANNEL}</div>
         <div class="date">{date_str}</div>
-        <div class="text">{text}</div>
+        <div class="text">{clean_text}</div>
         <a href="{link}" class="link" target="_blank">مشاهده در تلگرام</a>
     </div>
     """
-    data_json.append({"text": clean_text, "date": 0, "link": link})
+    data.append({"text": p.text, "clean_text": clean_text, "date": date_str, "link": link})
 
-if not data_json:
-    html_out += '<div class="card">هیچ پستی یافت نشد</div>'
+if not data:
+    html += '<div class="card">هیچ پستی یافت نشد</div>'
 
-html_out += '<div class="footer">به‌روزرسانی خودکار هر ۲ ساعت</div></div></body></html>'
+html += '<div class="footer">به‌روزرسانی خودکار هر ۲ ساعت</div></div></body></html>'
 
 with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-    f.write(html_out)
+    f.write(html)
 with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    json.dump(data_json, f, ensure_ascii=False, indent=2)
+    json.dump(data, f, ensure_ascii=False, indent=2)
 
-print("✅ فایل‌ها ذخیره شدند")
+print("✅ فایل‌های زیبا ذخیره شدند")

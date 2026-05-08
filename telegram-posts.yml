@@ -2,8 +2,8 @@ name: Update Telegram Posts
 
 on:
   schedule:
-    - cron: '0 */2 * * *'  # اجرا هر دو ساعت در دقیقه صفر
-  workflow_dispatch:     # امکان اجرای دستی
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
 
 jobs:
   update-posts:
@@ -18,12 +18,13 @@ jobs:
         with:
           python-version: '3.10'
 
-     - name: Install dependencies
-  run: |
-    python -m pip install --upgrade pip
-    pip install telethon
-    pip install ez-telegram
-    pip list
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install telethon
+          pip install ez-telegram
+          pip list
+
       - name: Check files before running scripts
         run: |
           ls -la
@@ -33,6 +34,7 @@ jobs:
           test -f post-channels/channels_script.py && echo "channels_script.py found" || echo "channels_script.py not found"
           echo "Checking if channels_name.json exists"
           test -f post-channels/channels_name.json && echo "channels_name.json found" || echo "channels_name.json not found"
+
       - name: Run telegram_script.py
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -42,6 +44,7 @@ jobs:
           echo "Starting telegram_script.py execution..."
           python telegram_script.py
           echo "telegram_script.py execution finished."
+
       - name: Run channels_script.py
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
@@ -57,14 +60,13 @@ jobs:
         run: |
           ls -la telegram-posts.html posts_formatted.json || echo "Main channel output files not found"
           ls -la post-channels/posts_formatted.json post-channels/config.json post-channels/telegram_proxy.json || echo "Channels output files not found"
+
       - name: Commit and push changes
         run: |
           git config --global user.name 'sinavm'
           git config --global user.email 'sinabb.2006@gmail.com'
-          # اضافه کردن فایل‌های کانال اصلی اگر وجود داشته باشند
           [ -f telegram-posts.html ] && git add telegram-posts.html || echo "telegram-posts.html not found"
           [ -f posts_formatted.json ] && git add posts_formatted.json || echo "posts_formatted.json not found"
-          # اضافه کردن فایل‌های کانال‌ها/گروه‌ها اگر وجود داشته باشند
           [ -f post-channels/posts_formatted.json ] && git add post-channels/posts_formatted.json || echo "post-channels/posts_formatted.json not found"
           [ -f post-channels/config.json ] && git add post-channels/config.json || echo "post-channels/config.json not found"
           [ -f post-channels/telegram_proxy.json ] && git add post-channels/telegram_proxy.json || echo "post-channels/telegram_proxy.json not found"

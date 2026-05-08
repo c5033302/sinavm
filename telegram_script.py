@@ -8,14 +8,16 @@ channel_username = 'sinavm'  # ← این را به یوزرنیم کانال خ
 # دریافت پست‌ها با ez-telegram
 try:
     client = EzClient()
-    messages_text = client.get_messages(channel=channel_username, limit=20)
+    all_messages = client.get_messages(channel=channel_username)  # دریافت همه پیام‌ها
+    # محدود کردن به 20 پیام اول (جدیدترین‌ها)
+    messages_text = all_messages[:20] if len(all_messages) > 20 else all_messages
     print(f"✅ {len(messages_text)} posts fetched.")
 except Exception as e:
     print(f"❌ Error fetching posts: {e}")
     messages_text = []
 
 # ----------------------------
-# ساخت خروجی HTML و JSON (مثل کد قبلی خودتان)
+# ساخت خروجی HTML و JSON
 # ----------------------------
 posts_html = '<div class="telegram-posts">\n'
 posts_json = []

@@ -11,13 +11,16 @@ all_results = {}
 
 for ch in channels:
     try:
-        messages = client.get_messages(ch)  # همه پیام‌ها
-        messages = messages[:10]  # ده تای آخر
+        messages = client.get_messages(ch)   # دریافت همه پیام‌ها
+        messages = messages[:10]             # فقط 10 تای آخر
         posts = []
         for msg in messages:
             if msg and msg.strip():
+                words = msg.strip().split()
+                short_text = ' '.join(words[:5]) + ('...' if len(words) > 5 else '')
                 posts.append({
                     "text": msg.strip(),
+                    "short_text": short_text,
                     "link": f"https://t.me/{ch}",
                     "date": "نامشخص"
                 })

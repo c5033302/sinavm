@@ -1,54 +1,182 @@
 <!DOCTYPE html>
 <html dir="rtl">
-<head><meta charset="UTF-8"><title>آخرین پست‌های @sinavm</title>
-<style>
-body {background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0;}
-.container {max-width:700px; margin:0 auto;}
-.card {background:white; border-radius:16px; padding:16px; margin-bottom:18px; box-shadow:0 2px 8px rgba(0,0,0,0.08);}
-.channel {font-weight:bold; color:#1e88e5; font-size:16px;}
-.date {font-size:12px; color:#888; margin:6px 0;}
-.text {margin:12px 0; line-height:1.6; word-break:break-word;}
-.link {display:inline-block; background:#e3f2fd; padding:6px 14px; border-radius:30px; text-decoration:none; font-size:13px; color:#0b5e7e;}
-.link:hover {background:#bbdefb;}
-.footer {text-align:center; font-size:12px; color:#888; margin-top:20px;}
-</style>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>پیام‌های @sinavm</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #eef2f7;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Tahoma, sans-serif;
+            padding: 16px;
+            direction: rtl;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.02);
+            transition: transform 0.2s, box-shadow 0.2s;
+            overflow: hidden;
+        }
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+            transform: translateY(-1px);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            padding: 14px 16px 8px 16px;
+            border-bottom: 1px solid #f0f2f5;
+        }
+        .avatar {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #29b6f6, #0288d1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+            margin-left: 12px;
+        }
+        .channel-info {
+            flex: 1;
+        }
+        .channel-name {
+            font-weight: 700;
+            font-size: 15px;
+            color: #1e2a3a;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .channel-name:hover {
+            text-decoration: underline;
+        }
+        .date {
+            font-size: 11px;
+            color: #8e9eae;
+            margin-top: 2px;
+        }
+        .message-text {
+            padding: 12px 16px;
+            font-size: 14.5px;
+            line-height: 1.55;
+            color: #1e2a3a;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+            background: white;
+        }
+        .message-link {
+            display: inline-block;
+            margin: 0 16px 16px 16px;
+            background: #e9f0f5;
+            padding: 6px 14px;
+            border-radius: 40px;
+            font-size: 12.5px;
+            color: #126fa3;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+        .message-link:hover {
+            background: #d4e2ed;
+        }
+        .footer {
+            text-align: center;
+            font-size: 11px;
+            color: #9aaebf;
+            margin: 24px 0 16px;
+            padding-top: 8px;
+            border-top: 1px solid #dce5ec;
+        }
+        @media (max-width: 550px) {
+            body { padding: 12px; }
+            .card-header { padding: 12px 14px 6px; }
+            .message-text { padding: 10px 14px; font-size: 14px; }
+        }
+    </style>
 </head>
 <body>
 <div class="container">
-<h3 style="text-align:center;">📱 @sinavm</h3>
+    <div style="background: white; border-radius: 28px; padding: 12px 20px; margin-bottom: 20px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+        <span style="font-size: 24px;">📱</span>
+        <h2 style="display: inline-block; font-size: 20px; margin-right: 8px; font-weight: 600;">آخرین پست‌های @sinavm</h2>
+    </div>
 
     <div class="card">
-        <div class="channel">@sinavm</div>
-        <div class="date">تاریخ نامشخص</div>
-        <div class="text">دانلود شیروخورشید بدون وی پی ان✅ اندروید  📲 💡نسخه v2026.03.17📥 لینک دانلود اندرویددانلود سایفون نسخه اصلی✅ اندروید  📲 💡نسخه v453📥 لینک دانلود اندروید👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
-        <a href="https://t.me/sinavm/4917" class="link" target="_blank">مشاهده در تلگرام</a>
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="channel-info">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-text">دانلود شیروخورشید بدون وی پی ان✅ اندروید  📲 💡نسخه v2026.03.17📥 لینک دانلود اندرویددانلود سایفون نسخه اصلی✅ اندروید  📲 💡نسخه v453📥 لینک دانلود اندروید👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <a href="https://t.me/sinavm/4917" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
     </div>
     
     <div class="card">
-        <div class="channel">@sinavm</div>
-        <div class="date">تاریخ نامشخص</div>
-        <div class="text">کانفیگ اختصاصی Slip Net 🇫🇮متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه دست ب هی...</div>
-        <a href="https://t.me/sinavm/4918" class="link" target="_blank">مشاهده در تلگرام</a>
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="channel-info">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-text">کانفیگ اختصاصی Slip Net 🇫🇮متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://AUCiIbG7V63cN8zlFZW66s/mBbasy3AQWZVF+NkqpQTl9AVl2uMev7KUwHnkRsj6hHrd+K0RYU3CQmsBAIH0UlzKNdj0HDirr+uDW2bWKMPevoKlieocaYnQ4ixBZdhJLYfAe5nNyOE7vxrSIPyB7s6WO3l601xqLvdOW9ycp14RhbmyzLCBR5/FhVPeXxQr7F3FPV4ttPk5tLvEej0E8CG15L7R4fb/h3bQ9OfjQZOJpOpD95qoX1AVu5vVil3AqWJ0JFxEc1HDSfU/Q3u1Rg5/9+HqS6U1jy3u2O5qh9CALffS/Zva8hJ0rJxGMadKRUNGTm8nZVZ2ctVLZUQ...</div>
+        <a href="https://t.me/sinavm/4918" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
     </div>
     
     <div class="card">
-        <div class="channel">@sinavm</div>
-        <div class="date">تاریخ نامشخص</div>
-        <div class="text">دانلود شیروخورشید بدون وی پی ان  ✅ اندروید  📲 💡نسخه v2026.03.17  📥 لینک دانلود اندروید  دانلود سایفون نسخه اصلی  ✅ اندروید  📲 💡نسخه v453  📥 لینک دانلود اندروید  👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻 ➖➖➖➖➖➖➖ 𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
-        <a href="https://t.me/sinavm/4919" class="link" target="_blank">مشاهده در تلگرام</a>
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="channel-info">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-text">دانلود شیروخورشید بدون وی پی ان  ✅ اندروید  📲 💡نسخه v2026.03.17  📥 لینک دانلود اندروید  دانلود سایفون نسخه اصلی  ✅ اندروید  📲 💡نسخه v453  📥 لینک دانلود اندروید  👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻 ➖➖➖➖➖➖➖ 𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <a href="https://t.me/sinavm/4919" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
     </div>
     
     <div class="card">
-        <div class="channel">@sinavm</div>
-        <div class="date">تاریخ نامشخص</div>
-        <div class="text">پایان حجمکانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه...</div>
-        <a href="https://t.me/sinavm/4920" class="link" target="_blank">مشاهده در تلگرام</a>
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="channel-info">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-text">پایان حجمکانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://AaUj/XkEb/pmPtwSfcaOvpETBWQH4dznOg6h3FEqMA96orXh64WoBX2SM3Lvw2zVKQUV69e0N0lJxYMhUi5ulkOAfxVXS4Q2xbkCHpMjWzIJEDcQhah58Uo+L0bJBHv1tUsWH/bv3HMeD55IqHRkHYDld+fxbdVJYsUUUNwUbxEDKHPE9JisDsmJMKVoNB9cchXOAKCst1Nc/d8R3rpVAM+mHsJDzsvukgJvENy+Lo5IUDK8mC1uxy54q/JHkokXoNBRjJ3Zpev/3LUGR3O7i3z/pqWVzmpqF3rpcVGh/K+pUi5YHIC9DLsWI1oO777hLI4zljIXLJ...</div>
+        <a href="https://t.me/sinavm/4920" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
     </div>
     
     <div class="card">
-        <div class="channel">@sinavm</div>
-        <div class="date">تاریخ نامشخص</div>
-        <div class="text">کسب و کار انلاین وقتی جواب میده که مردم عادی نت داشته باشن وگرنه با تخماشون باید تجارت کنن؟!@sinavm</div>
-        <a href="https://t.me/sinavm/4921" class="link" target="_blank">مشاهده در تلگرام</a>
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="channel-info">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-text">کسب و کار انلاین وقتی جواب میده که مردم عادی نت داشته باشن وگرنه با تخماشون باید تجارت کنن؟!@sinavm</div>
+        <a href="https://t.me/sinavm/4921" class="message-link" target="_blank">🔗 مشاهده در تلگرام</a>
     </div>
-    <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت</div></div></body></html>
+    
+    <div class="footer">
+        منبع: https://t.me/sinavm • به‌روزرسانی خودکار هر ۲ ساعت
+    </div>
+</div>
+</body>
+</html>

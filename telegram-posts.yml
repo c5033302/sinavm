@@ -23,6 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install telethon
           pip install ez-telegram
+          pip install telegram-channel-viewer   # <---- فقط این خط اضافه شد
           pip list
 
       - name: Check files before running scripts

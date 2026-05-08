@@ -4,7 +4,7 @@ import json
 import re
 from html import escape
 
-CHANNEL = 'sinavm'
+CHANNEL = 'sinavm'   # نام کانال (بدون @)
 LIMIT = 5
 
 def clean_text(text):
@@ -12,14 +12,14 @@ def clean_text(text):
         return ""
     # حذف لینک‌های تصاویر [*![](...)](...)
     text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    # حذف لینک‌های معمولی [متن](لینک)
+    # حذف لینک‌های [متن](لینک)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
     # حذف مارک‌داون ساده
     text = re.sub(r'[*_`~>#-]', '', text)
     text = re.sub(r'\n\s*\n', '\n', text)
     return text.strip()
 
-# دریافت پست‌ها
+# دریافت صفحه کانال
 url = f"https://t.me/s/{CHANNEL}"
 try:
     response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
@@ -31,7 +31,6 @@ except Exception as e:
     print(f"❌ خطا: {e}")
     messages = []
 
-# آماده‌سازی داده‌ها
 posts_data = []
 count = 0
 for msg in messages:
@@ -44,47 +43,44 @@ for msg in messages:
     clean_msg = clean_text(raw_text)
     if not clean_msg:
         continue
-
+    
+    # استخراج تاریخ (دقیق)
     date_tag = msg.find('time', class_='datetime')
-    date_str = date_tag['datetime'].replace('T', ' ').split('+')[0] if date_tag and date_tag.get('datetime') else 'تاریخ نامشخص'
-
+    if date_tag and date_tag.get('datetime'):
+        # فرمت '2025-04-05T12:34:56+00:00' -> '2025/04/05 12:34'
+        date_raw = date_tag['datetime'].replace('T', ' ').split('+')[0]
+        date_str = date_raw.replace('-', '/')
+    else:
+        date_str = "تاریخ نامشخص"
+    
+    # لینک مستقیم پست
     link_tag = msg.find('a', class_='tgme_widget_message_date')
     link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{CHANNEL}"
-
+    
     posts_data.append({
         "text_html": escape(clean_msg).replace('\n', '<br>'),
         "date": date_str,
-        "link": link
+        "link": link,
+        "id": link.split('/')[-1] if '/' in link else "0"
     })
     count += 1
 
-# ---------- ساخت HTML با CSS و JS داخلی (بسیار زیبا) ----------
+# ---------- ساخت HTML زیبا با CSS و دکمه کپی ----------
 html_output = f"""<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<html dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>پیام‌های @{CHANNEL}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>آخرین پست‌های @{CHANNEL}</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-
+        * {{ margin:0; padding:0; box-sizing:border-box; }}
         body {{
             background: #eef2f7;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Tahoma, sans-serif;
             padding: 20px 12px 40px;
             direction: rtl;
         }}
-
-        .container {{
-            max-width: 700px;
-            margin: 0 auto;
-        }}
-
-        /* header */
+        .container {{ max-width: 700px; margin: 0 auto; }}
         .header {{
             text-align: center;
             margin-bottom: 24px;
@@ -98,16 +94,8 @@ html_output = f"""<!DOCTYPE html>
             box-shadow: 0 2px 6px rgba(0,0,0,0.04);
             gap: 10px;
         }}
-        .channel-badge span {{
-            font-size: 28px;
-        }}
-        .channel-badge h1 {{
-            font-size: 20px;
-            font-weight: 600;
-            color: #1e2a3a;
-        }}
-
-        /* کارت پست */
+        .channel-badge span {{ font-size: 28px; }}
+        .channel-badge h1 {{ font-size: 20px; font-weight: 600; color: #1e2a3a; }}
         .card {{
             background: white;
             border-radius: 24px;
@@ -138,9 +126,7 @@ html_output = f"""<!DOCTYPE html>
             font-size: 20px;
             margin-left: 12px;
         }}
-        .meta {{
-            flex: 1;
-        }}
+        .meta {{ flex: 1; }}
         .channel-name {{
             font-weight: 700;
             font-size: 15px;
@@ -180,9 +166,7 @@ html_output = f"""<!DOCTYPE html>
             transition: background 0.2s;
             font-family: inherit;
         }}
-        .btn:hover {{
-            background: #e3eaf1;
-        }}
+        .btn:hover {{ background: #e3eaf1; }}
         .footer {{
             text-align: center;
             margin-top: 28px;
@@ -208,7 +192,7 @@ html_output = f"""<!DOCTYPE html>
     </div>
 
     {''.join(f'''
-    <div class="card" data-link="{post['link']}">
+    <div class="card">
         <div class="card-header">
             <div class="avatar">📢</div>
             <div class="meta">
@@ -230,17 +214,14 @@ html_output = f"""<!DOCTYPE html>
 </div>
 
 <script>
-    // کپی کردن متن با جاوااسکریپت
     document.querySelectorAll('.copy-btn').forEach(btn => {{
         btn.addEventListener('click', function(e) {{
             const text = this.getAttribute('data-text');
             navigator.clipboard.writeText(text).then(() => {{
-                const originalText = this.innerHTML;
+                const original = this.innerHTML;
                 this.innerHTML = '✅ کپی شد!';
-                setTimeout(() => {{ this.innerHTML = originalText; }}, 1500);
-            }}).catch(() => {{
-                alert('خطا در کپی');
-            }});
+                setTimeout(() => {{ this.innerHTML = original; }}, 1500);
+            }}).catch(() => alert('خطا در کپی'));
         }});
     }});
 </script>
@@ -248,7 +229,7 @@ html_output = f"""<!DOCTYPE html>
 </html>
 """
 
-# ذخیره فایل
+# ذخیره فایل‌ها
 with open('telegram-posts.html', 'w', encoding='utf-8') as f:
     f.write(html_output)
 

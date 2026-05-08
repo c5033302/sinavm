@@ -1,9 +1,23 @@
 import html
 import json
+import re
 from ez_telegram import EzClient
 
-channel_username = 'sinavm'   # نام کانال خودت
+channel_username = 'sinavm'
 LIMIT = 5
+
+def clean_telegram_text(raw_text):
+    if not raw_text:
+        return ""
+    # حذف لینک‌های تصاویر [*![](...)](...)
+    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', raw_text)
+    # حذف مارک‌داون ساده (ستاره، بک‌تیک، خط تیره)
+    text = re.sub(r'[*_`~>#]', '', text)
+    # تبدیل دو یا چند خط خالی به یک خط
+    text = re.sub(r'\n\s*\n', '\n', text)
+    # حذف فاصله‌های اضافی ابتدا و انتها
+    text = text.strip()
+    return text
 
 client = EzClient()
 try:
@@ -14,7 +28,6 @@ except Exception as e:
     print(f"❌ خطا: {e}")
     messages = []
 
-# ساخت HTML با استایل کارتی
 html_out = """<!DOCTYPE html>
 <html dir="rtl">
 <head><meta charset="UTF-8"><title>آخرین پست‌ها</title>
@@ -24,7 +37,7 @@ body {background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0;
 .card {background:white; border-radius:16px; padding:16px; margin-bottom:18px; box-shadow:0 2px 8px rgba(0,0,0,0.08);}
 .channel {font-weight:bold; color:#1e88e5; font-size:16px;}
 .date {font-size:12px; color:#888; margin:6px 0;}
-.text {margin:12px 0; line-height:1.6; word-break:break-word;}
+.text {margin:12px 0; line-height:1.6; word-break:break-word; white-space:pre-wrap;}
 .link {display:inline-block; background:#e3f2fd; padding:6px 14px; border-radius:30px; text-decoration:none; font-size:13px; color:#0b5e7e;}
 .link:hover {background:#bbdefb;}
 .footer {text-align:center; font-size:12px; color:#888; margin-top:20px;}
@@ -36,14 +49,17 @@ body {background:#eef2f7; font-family:Tahoma,sans-serif; padding:20px; margin:0;
 """
 
 data_json = []
-for idx, msg in enumerate(messages):
+for msg in messages:
     if not msg or not msg.strip():
         continue
-    # خلاصه متن (اختیاری: می‌توانی کل متن را بیاوری)
-    text = html.escape(msg.strip())
-    # فقط ۱۵۰ کاراکتر اول (اختیاری)
-    if len(text) > 200:
-        text = text[:200] + '...'
+    raw_text = msg.strip()
+    clean_text = clean_telegram_text(raw_text)
+    if not clean_text:
+        continue
+    # اگر خیلی بلند بود، محدود کن (اختیاری)
+    if len(clean_text) > 300:
+        clean_text = clean_text[:300] + '...'
+    text = html.escape(clean_text).replace('\n', '<br>')
     link = f"https://t.me/{channel_username}"
     date_str = "تاریخ نامشخص"
     html_out += f"""
@@ -54,7 +70,7 @@ for idx, msg in enumerate(messages):
         <a href="{link}" class="link" target="_blank">مشاهده در تلگرام</a>
     </div>
     """
-    data_json.append({"text": msg.strip(), "date": 0, "link": link})
+    data_json.append({"text": clean_text, "date": 0, "link": link})
 
 if not data_json:
     html_out += '<div class="card">هیچ پستی یافت نشد</div>'

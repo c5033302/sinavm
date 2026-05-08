@@ -10,7 +10,7 @@ import asyncio
 api_id = os.getenv("TELEGRAM_API_ID")
 api_hash = os.getenv("TELEGRAM_API_HASH")
 telegram_session = os.getenv("TELEGRAM_SESSION")
-channel_username = 'sinavm'  # نام کانال شما
+channel_username = 'vpnbyamoo'  # نام کانال شما
 
 # بررسی وجود متغیرهای محیطی
 if not api_id or not api_hash or not telegram_session:

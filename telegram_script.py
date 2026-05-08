@@ -2,22 +2,28 @@ import html
 import json
 import re
 from ez_telegram import EzClient
+from markdown import markdown
+from bs4 import BeautifulSoup
 
 channel_username = 'sinavm'
 LIMIT = 5
 
-def clean_telegram_text(raw_text):
-    if not raw_text:
+def markdown_to_plain_text(md_text):
+    """تبدیل متن مارک‌داون به متن ساده"""
+    if not md_text:
         return ""
-    # حذف لینک‌های تصاویر [*![](...)](...)
-    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', raw_text)
-    # حذف مارک‌داون ساده (ستاره، بک‌تیک، خط تیره)
-    text = re.sub(r'[*_`~>#]', '', text)
-    # تبدیل دو یا چند خط خالی به یک خط
-    text = re.sub(r'\n\s*\n', '\n', text)
-    # حذف فاصله‌های اضافی ابتدا و انتها
-    text = text.strip()
-    return text
+    # تبدیل مارک‌داون به HTML
+    html_content = markdown(md_text, extensions=['nl2br'])
+    # استخراج متن ساده از HTML
+    soup = BeautifulSoup(html_content, 'html.parser')
+    plain = soup.get_text()
+    # حذف لینک‌های اضافی باقی‌مانده
+    plain = re.sub(r'\[.*?\]\(.*?\)', '', plain)
+    # حذف کاراکترهای اضافی
+    plain = re.sub(r'[*_`~>#]', '', plain)
+    # حذف خطوط تکراری
+    plain = re.sub(r'\n\s*\n', '\n', plain)
+    return plain.strip()
 
 client = EzClient()
 try:
@@ -28,6 +34,7 @@ except Exception as e:
     print(f"❌ خطا: {e}")
     messages = []
 
+# HTML با استایل مشابه قبل (بدون تغییر)
 html_out = """<!DOCTYPE html>
 <html dir="rtl">
 <head><meta charset="UTF-8"><title>آخرین پست‌ها</title>
@@ -53,10 +60,9 @@ for msg in messages:
     if not msg or not msg.strip():
         continue
     raw_text = msg.strip()
-    clean_text = clean_telegram_text(raw_text)
+    clean_text = markdown_to_plain_text(raw_text)
     if not clean_text:
         continue
-    # اگر خیلی بلند بود، محدود کن (اختیاری)
     if len(clean_text) > 300:
         clean_text = clean_text[:300] + '...'
     text = html.escape(clean_text).replace('\n', '<br>')

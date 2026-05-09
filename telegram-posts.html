@@ -1,451 +1,428 @@
-import requests
-from bs4 import BeautifulSoup
-import json
-import re
-from html import escape
-from urllib.parse import urljoin
-
-# ========== تنظیمات (تنها قسمتی که باید تغییر دهید) ==========
-CHANNELS = ['vpnbyamoo', 'sinavm', 'hamclasixii']   # لیست کانال‌ها بدون @
-LIMIT_PER_CHANNEL = 10               # تعداد پست از هر کانال
-# ============================================================
-
-def clean_text(text):
-    if not text:
-        return ""
-    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    text = re.sub(r'[*_`~>#-]', '', text)
-    text = re.sub(r'\n\s*\n', '\n', text)
-    return text.strip()
-
-def fetch_channel_posts(channel_name, limit):
-    url = f"https://t.me/s/{channel_name}"
-    try:
-        response = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        messages = soup.find_all('div', class_='tgme_widget_message')
-        print(f"✅ {channel_name}: {len(messages)} پست یافت شد")
-    except Exception as e:
-        print(f"❌ خطا در {channel_name}: {e}")
-        return []
-
-    posts = []
-    for idx, msg in enumerate(messages):
-        if idx >= limit:
-            break
-
-        # ---------- متن ----------
-        text_div = msg.find('div', class_='tgme_widget_message_text')
-        if not text_div:
-            continue
-        raw_text = text_div.get_text(strip=False)
-        clean_msg = clean_text(raw_text)
-        if not clean_msg:
-            continue
-
-        # ---------- تاریخ (با روش مطمئن) ----------
-        date_str = "تاریخ نامشخص"
-        # روش اول: تگ time
-        time_tag = msg.find('time', class_='datetime')
-        if time_tag and time_tag.get('datetime'):
-            date_raw = time_tag['datetime'].replace('T', ' ').split('+')[0]
-            date_str = date_raw.replace('-', '/')
-        else:
-            # روش دوم: جستجوی متن تاریخ در عنصر حاوی لینک
-            date_link = msg.find('a', class_='tgme_widget_message_date')
-            if date_link:
-                span = date_link.find('span', class_='time')
-                if span:
-                    date_str = span.get_text(strip=True)
-        # تبدیل به فرمت خوانا: 2025/02/17 14:30
-        if len(date_str.split()) == 1:
-            # فقط تاریخ بدون ساعت
-            date_str = date_str + " --"
-        # ---------- لینک پست ----------
-        link_tag = msg.find('a', class_='tgme_widget_message_date')
-        link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{channel_name}"
-
-        # ---------- استخراج تصاویر (سه روش مختلف) ----------
-        images = []
-        # روش 1: تگ‌های a با تصویر پس‌زمینه
-        photo_wraps = msg.find_all('a', class_='tgme_widget_message_photo_wrap')
-        for a in photo_wraps:
-            style = a.get('style', '')
-            bg_match = re.search(r'background-image:url\(\'([^\']+)\'\)', style)
-            if bg_match:
-                img_url = bg_match.group(1)
-                if not img_url.startswith('http'):
-                    img_url = urljoin('https://t.me', img_url)
-                images.append(img_url)
-        # روش 2: تگ‌های img داخل پیام
-        if not images:
-            img_tags = msg.find_all('img', class_='tgme_widget_message_photo')
-            for img in img_tags:
-                src = img.get('src')
-                if src:
-                    img_url = urljoin('https://t.me', src)
-                    images.append(img_url)
-        # روش 3: اگر تصویری از نوع ویدیو/گالری باشد
-        if not images:
-            video_wraps = msg.find_all('a', class_='tgme_widget_message_video_wrap')
-            for v in video_wraps:
-                style = v.get('style', '')
-                bg_match = re.search(r'background-image:url\(\'([^\']+)\'\)', style)
-                if bg_match:
-                    img_url = bg_match.group(1)
-                    images.append(urljoin('https://t.me', img_url))
-
-        posts.append({
-            "text_html": escape(clean_msg).replace('\n', '<br>'),
-            "date": date_str,
-            "link": link,
-            "plain_text": clean_msg,
-            "images": images
-        })
-    return posts
-
-# دریافت داده‌ها
-all_data = {}
-for ch in CHANNELS:
-    all_data[ch] = fetch_channel_posts(ch, LIMIT_PER_CHANNEL)
-
-# ========== تولید HTML با سایدبار و طراحی شیک ==========
-def build_post_card(post, channel_name):
-    copy_text_escaped = post['plain_text'].replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
-    images_html = ''
-    if post['images']:
-        for img_url in post['images']:
-            images_html += f'<div class="post-img"><img src="{img_url}" loading="lazy"></div>'
-    else:
-        images_html = '<div class="no-img">🖼️ تصویری وجود ندارد</div>'
-    return f'''
-    <div class="tg-message">
-        <div class="msg-header">
-            <div class="avatar">📢</div>
-            <div class="msg-meta">
-                <span class="msg-channel">@{channel_name}</span>
-                <span class="msg-date">{post['date']}</span>
-            </div>
-        </div>
-        <div class="msg-text">{post['text_html']}</div>
-        <div class="msg-media">{images_html}</div>
-        <div class="msg-actions">
-            <a href="{post['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-            <button class="btn copy-btn" data-text="{copy_text_escaped}">📋 کپی متن</button>
-        </div>
-    </div>
-    '''
-
-# ساخت سایدبار
-sidebar_items = ''.join([f'<li class="channel-item" data-channel="{ch}">📌 @{ch}</li>' for ch in CHANNELS])
-
-# ساخت محتوای پست‌ها برای هر کانال (به صورت جداگانه)
-channel_contents = {}
-for ch, posts in all_data.items():
-    cards = ''.join([build_post_card(p, ch) for p in posts])
-    if not cards:
-        cards = '<div class="no-posts">هیچ پستی یافت نشد</div>'
-    channel_contents[ch] = f'<div id="channel-{ch}" class="channel-posts" style="display: block;">{cards}</div>'
-
-content_html = ''.join([channel_contents[ch] for ch in CHANNELS])
-
-html_output = f"""<!DOCTYPE html>
-<html lang="fa" dir="rtl">
+<!DOCTYPE html>
+<html dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>آرشیو کانال‌های تلگرام</title>
-    <!-- فونت زیبای فارسی Vazir (جایگزین امن) -->
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazir-font@v30.1.0/dist/font-face.css" rel="stylesheet" type="text/css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>آخرین پست‌های کانال‌های منتخب</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{
-            background: #f1f3f6;
-            font-family: 'Vazir', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Tahoma, sans-serif;
-            direction: rtl;
-            height: 100vh;
-            overflow: hidden;
-        }}
-        /* ساختار اصلی: سایدبار + محتوا */
-        .app {{
-            display: flex;
-            height: 100vh;
-            width: 100%;
-        }}
-        /* سایدبار (سبک تلگرام دسکتاپ) */
-        .sidebar {{
-            width: 280px;
-            background: white;
-            border-left: 1px solid #e0e0e0;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 0 10px rgba(0,0,0,0.05);
-            z-index: 2;
-            overflow-y: auto;
-        }}
-        .sidebar-header {{
-            padding: 20px 16px;
-            border-bottom: 1px solid #eef2f7;
-            font-weight: 700;
-            font-size: 20px;
-            background: #fff;
-            color: #1e2a3a;
-        }}
-        .channels-list {{
-            list-style: none;
-            padding: 8px 0;
-        }}
-        .channel-item {{
-            padding: 12px 20px;
-            cursor: pointer;
-            transition: background 0.2s;
-            font-size: 15px;
-            font-weight: 500;
-            color: #1e2a3a;
-            border-right: 3px solid transparent;
-        }}
-        .channel-item:hover {{
-            background: #f0f2f5;
-        }}
-        .channel-item.active {{
-            background: #e3f2fd;
-            border-right-color: #29b6f6;
-            color: #126fa3;
-        }}
-        /* منطقه محتوای اصلی */
-        .main-content {{
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-            background: #eef2f7;
-        }}
-        .posts-container {{
-            max-width: 800px;
-            margin: 20px auto;
-            padding: 0 16px 40px;
-            width: 100%;
-        }}
-        /* کارت پست (شبیه خود تلگرام) */
-        .tg-message {{
-            background: white;
-            border-radius: 20px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
-            transition: 0.2s;
-            overflow: hidden;
-        }}
-        .tg-message:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-        }}
-        .msg-header {{
-            display: flex;
-            align-items: center;
-            padding: 14px 18px 8px;
-            gap: 12px;
-        }}
-        .avatar {{
-            width: 42px;
-            height: 42px;
-            background: linear-gradient(135deg, #29b6f6, #0288d1);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            color: white;
-        }}
-        .msg-meta {{
-            flex: 1;
-        }}
-        .msg-channel {{
-            font-weight: 700;
-            font-size: 15px;
-            color: #1e2a3a;
-            display: block;
-        }}
-        .msg-date {{
-            font-size: 11px;
-            color: #8e9eae;
-            margin-top: 2px;
-        }}
-        .msg-text {{
-            padding: 5px 18px 8px 18px;
-            font-size: 15px;
-            line-height: 1.55;
-            color: #1e2a3a;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }}
-        .msg-media {{
-            padding: 0 18px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 4px;
-        }}
-        .post-img {{
-            flex: 1 1 200px;
-            max-width: 100%;
-        }}
-        .post-img img {{
-            width: 100%;
-            max-height: 260px;
-            object-fit: cover;
-            border-radius: 18px;
-            background: #f8f9fa;
-            border: 1px solid #eef2f7;
-        }}
-        .no-img {{
-            font-size: 12px;
-            color: #9aaebf;
-            background: #f8f9fa;
-            padding: 8px 12px;
-            border-radius: 20px;
-            text-align: center;
-        }}
-        .msg-actions {{
-            padding: 10px 18px 18px;
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }}
-        .btn {{
-            background: #f0f4f9;
-            border: none;
-            padding: 6px 14px;
-            border-radius: 40px;
-            font-size: 13px;
-            color: #126fa3;
-            text-decoration: none;
-            cursor: pointer;
-            transition: 0.2s;
-            font-family: inherit;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }}
-        .btn:hover {{
-            background: #e3eaf1;
-        }}
-        .no-posts {{
-            text-align: center;
-            padding: 40px;
-            color: #8e9eae;
-        }}
-        .footer-note {{
-            text-align: center;
-            font-size: 12px;
-            color: #9aaebf;
-            margin: 20px 0;
-        }}
-        @media (max-width: 700px) {{
-            .sidebar {{
-                width: 80px;
-            }}
-            .sidebar-header {{
-                text-align: center;
-                padding: 20px 0;
-                font-size: 0;
-            }}
-            .sidebar-header::before {{
-                content: "☰";
-                font-size: 28px;
-            }}
-            .channel-item {{
-                text-align: center;
-                font-size: 12px;
-                padding: 12px 4px;
-                word-break: keep-all;
-            }}
-            .channel-item span {{
-                display: block;
-                font-size: 20px;
-                margin-bottom: 4px;
-            }}
-            .posts-container {{
-                padding: 0 12px 40px;
-            }}
-        }}
+        /* استایل‌های صفحه (ادامه دارد...) */
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { background: #eef2f7; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif; padding: 20px 12px 40px; direction: rtl; }
+        .container { max-width: 700px; margin: 0 auto; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .channel-badge { display: inline-flex; align-items: center; background: white; padding: 8px 20px; border-radius: 60px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); gap: 10px; }
+        .channel-badge span { font-size: 28px; }
+        .channel-badge h1 { font-size: 20px; font-weight: 600; color: #1e2a3a; }
+        .section-title { font-size: 18px; font-weight: 600; margin: 24px 0 12px 0; padding-right: 8px; border-right: 4px solid #29b6f6; color: #1e2a3a; }
+        .card { background: white; border-radius: 24px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.08); transition: all 0.2s ease; overflow: hidden; }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+        .card-header { display: flex; align-items: center; padding: 14px 18px 8px; border-bottom: 1px solid #f0f2f5; }
+        .avatar { width: 40px; height: 40px; background: linear-gradient(135deg, #29b6f6, #0288d1); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; margin-left: 12px; }
+        .meta { flex: 1; }
+        .channel-name { font-weight: 700; font-size: 15px; color: #1e2a3a; text-decoration: none; }
+        .date { font-size: 11px; color: #8e9eae; margin-top: 2px; }
+        .message-body { padding: 14px 18px; font-size: 15px; line-height: 1.55; color: #1e2a3a; word-wrap: break-word; white-space: pre-wrap; }
+        .message-images { padding: 0 18px; display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+        .message-image { flex: 1 1 auto; max-width: 100%; }
+        .message-image img { width: 100%; max-height: 300px; object-fit: contain; border-radius: 12px; background: #f8f9fa; }
+        .no-image { font-size: 12px; color: #8e9eae; text-align: center; padding: 10px; background: #f8f9fa; border-radius: 12px; width: 100%; }
+        .actions { padding: 0 18px 14px 18px; display: flex; gap: 12px; }
+        .btn { display: inline-flex; align-items: center; gap: 6px; background: #f0f4f9; border: none; padding: 6px 14px; border-radius: 30px; font-size: 12.5px; color: #126fa3; text-decoration: none; cursor: pointer; transition: background 0.2s; font-family: inherit; }
+        .btn:hover { background: #e3eaf1; }
+        .footer { text-align: center; margin-top: 28px; padding-top: 16px; border-top: 1px solid #d0dbe6; color: #8e9eae; font-size: 12px; }
+        @media (max-width: 550px) {
+            body { padding: 12px; }
+            .card-header { padding: 10px 14px 6px; }
+            .message-body { padding: 12px 14px; font-size: 14px; }
+            .message-images { padding: 0 14px; }
+            .actions { padding: 0 14px 14px 14px; }
+        }
     </style>
 </head>
 <body>
-<div class="app">
-    <div class="sidebar">
-        <div class="sidebar-header">کانال‌ها</div>
-        <ul class="channels-list">
-            {sidebar_items}
-        </ul>
-    </div>
-    <div class="main-content">
-        <div class="posts-container" id="posts-container">
-            {content_html}
+<div class="container">
+    <div class="header">
+        <div class="channel-badge">
+            <span>📡</span>
+            <h1>آخرین پست‌های کانال‌ها</h1>
         </div>
-        <div class="footer-note">به‌روزرسانی خودکار هر ۲ ساعت • {len(CHANNELS)} کانال</div>
+    </div>
+    <div class="channel-section"><h2 class="section-title">📌 کانال @vpnbyamoo</h2>
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">🔐 𝗩𝟮𝗿𝗮𝘆𝗡𝗚 ➕ 𝗣𝘀𝗶𝗽𝗵𝗼𝗻 📱vless://cb05a23a4cda4407e1c4e0b421a2af8e@mmd.az99x.info:8880?encryption=none&amp;type=ws&amp;path=%2Fproxydotnetبا سرعت خیلی کم وصل در برخی از مناطق📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/640" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="🔐 𝗩𝟮𝗿𝗮𝘆𝗡𝗚 ➕ 𝗣𝘀𝗶𝗽𝗵𝗼𝗻 📱vless://cb05a23a4cda4407e1c4e0b421a2af8e@mmd.az99x.info:8880?encryption=none&type=ws&path=%2Fproxydotnetبا سرعت خیلی کم وصل در برخی از مناطق📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">متصل✅vless://24f6aa71fa7c4aa191df68add18c12c9@arvancloud.ir:2095?path=%2Fstream&amp;security=none&amp;encryption=none&amp;host=hosting.linuweb.ir&amp;type=wsV2rayngFastss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpBUmd2R1p5d0ErZ2FjZ0dWMjZCdm11MDUrd1ptUlcvaitBZFUrWjhCdDQ0PQ==@193.135.174.135:990V2rayngFastvless://d134e959783c4ef9a10bf63285ce10de@snapp.ir:8080?path=%2F&amp;security=none&amp;encryption=none&amp;host=dnsdivar.khanumjan.ir&amp;type=wsV2rayngFastvless://5219acf2baeb4640a0b270d669f15674@185.143.233.5:443?encryption=none&amp;type=ws&amp;host=en.8lack.ir&amp;path=/chat?ed%3D128&amp;security=tls&amp;fp=firefox&amp;sni=en.8lack.ir&amp;alpn=h2,http/1.1V2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/641" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="متصل✅vless://24f6aa71fa7c4aa191df68add18c12c9@arvancloud.ir:2095?path=%2Fstream&security=none&encryption=none&host=hosting.linuweb.ir&type=wsV2rayngFastss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpBUmd2R1p5d0ErZ2FjZ0dWMjZCdm11MDUrd1ptUlcvaitBZFUrWjhCdDQ0PQ==@193.135.174.135:990V2rayngFastvless://d134e959783c4ef9a10bf63285ce10de@snapp.ir:8080?path=%2F&security=none&encryption=none&host=dnsdivar.khanumjan.ir&type=wsV2rayngFastvless://5219acf2baeb4640a0b270d669f15674@185.143.233.5:443?encryption=none&type=ws&host=en.8lack.ir&path=/chat?ed%3D128&security=tls&fp=firefox&sni=en.8lack.ir&alpn=h2,http/1.1V2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">😑😑😑😑یک سیستم گیمینگ ، ۳ تومن📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="message-image"><img src="https://cdn4.telesco.pe/file/OmTIh5iqW31J9PzC3i1h7VnkP7dPfDyvVLryESo0pofvQkXrCLdYbsaU5-KXhDn9VKHn36sX_e5b1vqCNs75K6H2Kw5b_vOX4fVM5SvV_YEBfdl05ahyKves_cqwysthBRDwrcqKWlB0qDWn5Gi67tYP2QCNnZ99P5x-jaXZcso4qPUrpwas0Lh9b6QxoQuWWs5T5atbW0MmOBc7hPOoKvGw0Ks8AdkCV74Qi5-MOEzC_SLmw5Q80GY6cBTKbUvHkAjFNE9b5slRShQCzmVbDK_iX60mfDRFF63bz1Y3XwqF1J3aWHMDTtOCYgBHSC2HBCqidvFSswJxqyguocD_qw.jpg" loading="lazy" alt="تصویر"></div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/643" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="😑😑😑😑یک سیستم گیمینگ ، ۳ تومن📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ‌های پرسرعت 🚨vless://9a07746c56d04ef0b47d91f0bcbb60b3@arvancloud.ir:2095?encryption=none&amp;host=node1.helxj.ir&amp;path=%2Fapi%2Fv3%2Fnetwork%2Fsession%2Fupdate&amp;security=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721389%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://a921896627b742ada9da7e63b12fcbb7@185.143.233.200:2082?type=ws&amp;encryption=mlkem768x25519plus.native.0rtt.GSIe3kCJCEVNjj8p1N86sDfII8JF1ZkYjQD2dwIyQ&amp;path=%2F&amp;host=nima.hayalco.ir&amp;security=none%F0%9F%87%AE%F0%9F%87%B721390%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://7b915647fe6a4da292b9c2d999b5ac70@nl.gxnetshop.ir:80?path=%2F&amp;security=none&amp;encryption=none&amp;host=vip.tickneloghy.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721391%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://60404e8aa1d043749b4c6aeb32dcf51b@185.143.233.235:8080?path=%2F&amp;security=none&amp;encryption=none&amp;host=Test.bosbedetoto.site&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721392%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://bdf5d33be6f84c6d9dd2d43041afef70@snapp.ir:8080?path=%2F&amp;security=none&amp;encryption=none&amp;host=simorgh.darerio.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721393%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://152d5d4589024f9e8c8cd3d0c3aad0af@s2.vahshat.xyz:80?type=ws&amp;security=none&amp;path=%2Fws&amp;host=v.greentab.ir%F0%9F%87%AE%F0%9F%87%B721394%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f2cad035e4ef405fa9211b1dc2dd4ced@185.143.233.5:80?path=%2F&amp;security=none&amp;encryption=none&amp;host=cd2.sesrsa.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721395%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://a1a9fd21b97144a7992f3439995a5d23@snapp.ir:8080?path=%2F&amp;security=none&amp;encryption=none&amp;host=simorgh.darerio.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721396%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://bb3df30a4bee44d2b7524d696c7f4f4d@185.143.233.43:8880?path=%2F&amp;security=none&amp;encryption=none&amp;host=motabarim3.servicepanelbaz.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721397%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/645" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ‌های پرسرعت 🚨vless://9a07746c56d04ef0b47d91f0bcbb60b3@arvancloud.ir:2095?encryption=none&host=node1.helxj.ir&path=%2Fapi%2Fv3%2Fnetwork%2Fsession%2Fupdate&security=none&type=ws%F0%9F%87%AE%F0%9F%87%B721389%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://a921896627b742ada9da7e63b12fcbb7@185.143.233.200:2082?type=ws&encryption=mlkem768x25519plus.native.0rtt.GSIe3kCJCEVNjj8p1N86sDfII8JF1ZkYjQD2dwIyQ&path=%2F&host=nima.hayalco.ir&security=none%F0%9F%87%AE%F0%9F%87%B721390%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://7b915647fe6a4da292b9c2d999b5ac70@nl.gxnetshop.ir:80?path=%2F&security=none&encryption=none&host=vip.tickneloghy.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721391%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://60404e8aa1d043749b4c6aeb32dcf51b@185.143.233.235:8080?path=%2F&security=none&encryption=none&host=Test.bosbedetoto.site&type=ws%F0%9F%87%AE%F0%9F%87%B721392%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://bdf5d33be6f84c6d9dd2d43041afef70@snapp.ir:8080?path=%2F&security=none&encryption=none&host=simorgh.darerio.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721393%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://152d5d4589024f9e8c8cd3d0c3aad0af@s2.vahshat.xyz:80?type=ws&security=none&path=%2Fws&host=v.greentab.ir%F0%9F%87%AE%F0%9F%87%B721394%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f2cad035e4ef405fa9211b1dc2dd4ced@185.143.233.5:80?path=%2F&security=none&encryption=none&host=cd2.sesrsa.com&type=ws%F0%9F%87%AE%F0%9F%87%B721395%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://a1a9fd21b97144a7992f3439995a5d23@snapp.ir:8080?path=%2F&security=none&encryption=none&host=simorgh.darerio.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721396%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://bb3df30a4bee44d2b7524d696c7f4f4d@185.143.233.43:8880?path=%2F&security=none&encryption=none&host=motabarim3.servicepanelbaz.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721397%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ‌های پرسرعت 🚨vless://cb9be334b8e94ab98041e3e28a0ef0eb@sr3.vrshekan.site:8080?encryption=none&amp;security=none&amp;type=ws&amp;path=%2F%F0%9F%87%AE%F0%9F%87%B721398%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f9b5a2b02db44687918379368983f2e7@185.143.233.5:80?encryption=none&amp;host=cd2.sesrsa.com&amp;path=%2F&amp;security=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721399%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://7cadf085a6f74d4cb1cb60038cd0c71b@s1.tehranionliine.ir:80?path=%2F&amp;security=&amp;encryption=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721400%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://600caa5cc6b4494a9f165082e6286021@s4.tehranionliine.ir:80?path=%2F&amp;security=&amp;encryption=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721401%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://5ab3972ae79c413c952e708f71e3f6c3@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721402%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://2bde8f8b3b6e4d6a8c4a631bfe759b18@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721403%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://dee21f541eb0435fbe5621dd189ed124@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721404%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://c92aaf9a8dbb4a1093bf0c8d3da04fc2@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721405%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f638a2ac8db141f0967d1c278db391d1@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721406%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/646" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ‌های پرسرعت 🚨vless://cb9be334b8e94ab98041e3e28a0ef0eb@sr3.vrshekan.site:8080?encryption=none&security=none&type=ws&path=%2F%F0%9F%87%AE%F0%9F%87%B721398%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f9b5a2b02db44687918379368983f2e7@185.143.233.5:80?encryption=none&host=cd2.sesrsa.com&path=%2F&security=none&type=ws%F0%9F%87%AE%F0%9F%87%B721399%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://7cadf085a6f74d4cb1cb60038cd0c71b@s1.tehranionliine.ir:80?path=%2F&security=&encryption=none&type=ws%F0%9F%87%AE%F0%9F%87%B721400%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://600caa5cc6b4494a9f165082e6286021@s4.tehranionliine.ir:80?path=%2F&security=&encryption=none&type=ws%F0%9F%87%AE%F0%9F%87%B721401%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://5ab3972ae79c413c952e708f71e3f6c3@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721402%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://2bde8f8b3b6e4d6a8c4a631bfe759b18@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721403%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://dee21f541eb0435fbe5621dd189ed124@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721404%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://c92aaf9a8dbb4a1093bf0c8d3da04fc2@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721405%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f638a2ac8db141f0967d1c278db391d1@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721406%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">متصل✅vless://73869b84f4e64411a0b0b1074242f88f@snapp.ir:8080?encryption=none&amp;security=none&amp;type=ws&amp;host=ts.programmingcoding.ir&amp;path=%2FV2rayngFastvless://80a4ceadeef641b7bfdbcad1564fbcc8@jll.az99x.info:8880?path=%2F&amp;security=none&amp;encryption=none&amp;type=wsV2rayngFastvless://80a4ceadeef641b7bfdbcad1564fbcc8@jll.az99x.info:8880?path=%2F&amp;security=none&amp;encryption=none&amp;type=wsV2rayngFastvless://1bfba457f37a45e6a7e33704b06f71c6@snapp.ir:2087?path=%2F&amp;security=tls&amp;alpn=h2%2Chttp%2F1.1%2Ch3&amp;encryption=none&amp;host=01team.no1plus.ir&amp;fp=chrome&amp;type=ws&amp;sni=01team.no1plus.irV2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/647" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="متصل✅vless://73869b84f4e64411a0b0b1074242f88f@snapp.ir:8080?encryption=none&security=none&type=ws&host=ts.programmingcoding.ir&path=%2FV2rayngFastvless://80a4ceadeef641b7bfdbcad1564fbcc8@jll.az99x.info:8880?path=%2F&security=none&encryption=none&type=wsV2rayngFastvless://80a4ceadeef641b7bfdbcad1564fbcc8@jll.az99x.info:8880?path=%2F&security=none&encryption=none&type=wsV2rayngFastvless://1bfba457f37a45e6a7e33704b06f71c6@snapp.ir:2087?path=%2F&security=tls&alpn=h2%2Chttp%2F1.1%2Ch3&encryption=none&host=01team.no1plus.ir&fp=chrome&type=ws&sni=01team.no1plus.irV2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ‌های پرسرعت 🚨vless://1ed87c82de4a4e0d954b296dd471ffc1@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721407%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://2ed30b6f1d484e5f905b91f8e6b79ab7@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721408%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f68a458b8b6d41c7b9fc8d3730c55dba@red.nahidapp.com:443?path=%2Fred%2F&amp;security=tls&amp;encryption=none&amp;host=red.nahidapp.com&amp;type=ws&amp;sni=red.nahidapp.com%F0%9F%87%AE%F0%9F%87%B721409%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://27add32be37e42398d2f52881666ab57@arvancloud.ir:80?path=%2F&amp;security=&amp;encryption=none&amp;host=t1.tunnellinuweb.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721410%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://e46c7df52b3a4238a45f04b662c803a8@camp.nahidapp.com:443?path=%2FIFVPNBot&amp;security=tls&amp;encryption=none&amp;host=camp.nahidapp.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721411%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://299da272ead6444fabbeeec4d39b16b0@u1.msljha8844.site:2099/?encryption=none&amp;type=tcp&amp;headerType=http&amp;host=cafeariel.ir&amp;security=none%F0%9F%87%AE%F0%9F%87%B721412%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f49e33519193400890f600201f270b0b@snapp.ir:80?encryption=none&amp;type=ws&amp;path=%2F&amp;host=aopas.reedsy.ir%F0%9F%87%AE%F0%9F%87%B721413%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://e1b8cbfbf3b04838aaf54a6c3a6c16a1@185.143.233.5:80?path=%2F&amp;security=none&amp;encryption=none&amp;host=cd2.sesrsa.com&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721414%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/648" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ‌های پرسرعت 🚨vless://1ed87c82de4a4e0d954b296dd471ffc1@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721407%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://2ed30b6f1d484e5f905b91f8e6b79ab7@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721408%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f68a458b8b6d41c7b9fc8d3730c55dba@red.nahidapp.com:443?path=%2Fred%2F&security=tls&encryption=none&host=red.nahidapp.com&type=ws&sni=red.nahidapp.com%F0%9F%87%AE%F0%9F%87%B721409%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://27add32be37e42398d2f52881666ab57@arvancloud.ir:80?path=%2F&security=&encryption=none&host=t1.tunnellinuweb.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721410%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://e46c7df52b3a4238a45f04b662c803a8@camp.nahidapp.com:443?path=%2FIFVPNBot&security=tls&encryption=none&host=camp.nahidapp.com&type=ws%F0%9F%87%AE%F0%9F%87%B721411%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://299da272ead6444fabbeeec4d39b16b0@u1.msljha8844.site:2099/?encryption=none&type=tcp&headerType=http&host=cafeariel.ir&security=none%F0%9F%87%AE%F0%9F%87%B721412%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f49e33519193400890f600201f270b0b@snapp.ir:80?encryption=none&type=ws&path=%2F&host=aopas.reedsy.ir%F0%9F%87%AE%F0%9F%87%B721413%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://e1b8cbfbf3b04838aaf54a6c3a6c16a1@185.143.233.5:80?path=%2F&security=none&encryption=none&host=cd2.sesrsa.com&type=ws%F0%9F%87%AE%F0%9F%87%B721414%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">متصل✅vless://a3bfe21b0d7a496f8e970bbc33bff55d@185.143.233.5:443?path=%2Fchat%3Fed%3D128&amp;security=tls&amp;alpn=h2%2Chttp%2F1.1&amp;encryption=none&amp;insecure=0&amp;host=in.8lack.ir&amp;fp=firefox&amp;type=ws&amp;allowInsecure=0&amp;sni=in.8lack.irV2rayngFastvless://c09816d19b534e0d85a89def477121ab@185.143.233.122:80?encryption=none&amp;security=none&amp;type=ws&amp;host=cdnisfucka.drnimaamini.ir&amp;path=%2FwsV2rayngFastvless://66f7367834a54863bd7bcba151a2562e@185.143.233.5:2086?path=%2F&amp;security=none&amp;encryption=none&amp;host=cdn.sesrsa.com&amp;type=wsV2rayngFastvless://66f7367834a54863bd7bcba151a2562e@185.143.233.5:2086?path=%2F&amp;security=none&amp;encryption=none&amp;host=cdn.sesrsa.com&amp;type=wsV2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/649" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="متصل✅vless://a3bfe21b0d7a496f8e970bbc33bff55d@185.143.233.5:443?path=%2Fchat%3Fed%3D128&security=tls&alpn=h2%2Chttp%2F1.1&encryption=none&insecure=0&host=in.8lack.ir&fp=firefox&type=ws&allowInsecure=0&sni=in.8lack.irV2rayngFastvless://c09816d19b534e0d85a89def477121ab@185.143.233.122:80?encryption=none&security=none&type=ws&host=cdnisfucka.drnimaamini.ir&path=%2FwsV2rayngFastvless://66f7367834a54863bd7bcba151a2562e@185.143.233.5:2086?path=%2F&security=none&encryption=none&host=cdn.sesrsa.com&type=wsV2rayngFastvless://66f7367834a54863bd7bcba151a2562e@185.143.233.5:2086?path=%2F&security=none&encryption=none&host=cdn.sesrsa.com&type=wsV2rayngFast❤️لطفا برای دوستان و آشنایان خود ارسال نمایید تا به اینترنت دسترسی داشته باشند.✅ خرید فیلترشکن اختصاصی با کف قیمت👇📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">8 کانفیگ V2ray برای استفاده از ترکیب V2rayNG و سایفونsocks://Og@62.220.126.56:29319%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:24497%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:25393%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:26988%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:26442%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29804%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29675%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29318%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8C📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/650" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="8 کانفیگ V2ray برای استفاده از ترکیب V2rayNG و سایفونsocks://Og@62.220.126.56:29319%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:24497%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:25393%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:26988%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:26442%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29804%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29675%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8Csocks://Og@62.220.126.56:29318%40vpnbaz%20%7C%20%D8%AA%D8%B1%DA%A9%DB%8C%D8%A8%DB%8C📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/vpnbyamoo" class="channel-name" target="_blank">@vpnbyamoo</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ‌های پرسرعت 🚨vless://eddd7fcc09a34489afb89b74681ee21c@s2.koroshvip.ir:55115?security=none&amp;encryption=none&amp;headerType=none&amp;type=tcp%F0%9F%87%AE%F0%9F%87%B721821%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://ed3c604cfe5840c1b7d70e37279bc0c5@188.121.124.181:443?encryption=none&amp;type=xhttp&amp;mode=auto&amp;host=static.cdn.asset.aparat.com&amp;security=tls&amp;fp=chrome&amp;sni=static.cdn.asset.aparat.com&amp;pcs=f562dc60b65f99780e34ce1d5b7074c74e812c346e9c75494905948c12ab60f6%F0%9F%87%AE%F0%9F%87%B721822%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://20f81fa43fa04b28833c8385e70cc3d3@arvancloud.ir:80?path=upload%3Fed%3D256&amp;security=none&amp;encryption=none&amp;host=website.vgpsl.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721823%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f1d15ad7a0aa47f39a5425bdc4a56b11@Ikco.ir:8080?path=%2Fcdn&amp;security=none&amp;encryption=none&amp;host=cp.movizdl.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721824%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://39996a89de344ec29f156643ed000615@185.143.233.235:8080?encryption=none&amp;host=R.artarona.ir&amp;path=%2F&amp;security=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721825%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://63bef9575fba422d926b701a5255f512@Ikco.ir:8080?path=/cdn&amp;security=&amp;encryption=none&amp;host=cp.movizdl.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721826%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://ea681c8962054883aa712ee387342852@ou6.virgooli.com:80?path=/&amp;security=none&amp;encryption=none&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721827%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://5b472cca418743bd855bd7a9428df8e6@Ikco.ir:8080?path=/cdn&amp;security=none&amp;encryption=none&amp;host=cp.movizdl.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721828%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://4b0d64d994514bcca8334239aac0cfe4@snapp.ir:8080?path=%2F&amp;security=none&amp;encryption=none&amp;host=cdc.ashtona.ir&amp;type=ws%F0%9F%87%AE%F0%9F%87%B721829%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/Vpnbyamoo/653" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ‌های پرسرعت 🚨vless://eddd7fcc09a34489afb89b74681ee21c@s2.koroshvip.ir:55115?security=none&encryption=none&headerType=none&type=tcp%F0%9F%87%AE%F0%9F%87%B721821%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://ed3c604cfe5840c1b7d70e37279bc0c5@188.121.124.181:443?encryption=none&type=xhttp&mode=auto&host=static.cdn.asset.aparat.com&security=tls&fp=chrome&sni=static.cdn.asset.aparat.com&pcs=f562dc60b65f99780e34ce1d5b7074c74e812c346e9c75494905948c12ab60f6%F0%9F%87%AE%F0%9F%87%B721822%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://20f81fa43fa04b28833c8385e70cc3d3@arvancloud.ir:80?path=upload%3Fed%3D256&security=none&encryption=none&host=website.vgpsl.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721823%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://f1d15ad7a0aa47f39a5425bdc4a56b11@Ikco.ir:8080?path=%2Fcdn&security=none&encryption=none&host=cp.movizdl.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721824%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://39996a89de344ec29f156643ed000615@185.143.233.235:8080?encryption=none&host=R.artarona.ir&path=%2F&security=none&type=ws%F0%9F%87%AE%F0%9F%87%B721825%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://63bef9575fba422d926b701a5255f512@Ikco.ir:8080?path=/cdn&security=&encryption=none&host=cp.movizdl.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721826%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://ea681c8962054883aa712ee387342852@ou6.virgooli.com:80?path=/&security=none&encryption=none&type=ws%F0%9F%87%AE%F0%9F%87%B721827%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://5b472cca418743bd855bd7a9428df8e6@Ikco.ir:8080?path=/cdn&security=none&encryption=none&host=cp.movizdl.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721828%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpMvless://4b0d64d994514bcca8334239aac0cfe4@snapp.ir:8080?path=%2F&security=none&encryption=none&host=cdc.ashtona.ir&type=ws%F0%9F%87%AE%F0%9F%87%B721829%20%7C%20%E2%9A%A1%EF%B8%8FTelegram%20%3D%20t.me%2FLonUpM📱 @amoo247📱 @amoo247📱 @amoo247">📋 کپی متن</button>
+        </div>
+    </div>
+    </div><div class="channel-section"><h2 class="section-title">📌 کانال @sinavm</h2>
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">دانلود شیروخورشید بدون وی پی ان  ✅ اندروید  📲 💡نسخه v2026.03.17  📥 لینک دانلود اندروید  دانلود سایفون نسخه اصلی  ✅ اندروید  📲 💡نسخه v453  📥 لینک دانلود اندروید  👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻 ➖➖➖➖➖➖➖ 𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4919" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="دانلود شیروخورشید بدون وی پی ان  ✅ اندروید  📲 💡نسخه v2026.03.17  📥 لینک دانلود اندروید  دانلود سایفون نسخه اصلی  ✅ اندروید  📲 💡نسخه v453  📥 لینک دانلود اندروید  👈🏻 کانفیگ ترکیبی در قسمت کامنت👇🏻 ➖➖➖➖➖➖➖ 𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">پایان حجمکانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://AaUj/XkEb/pmPtwSfcaOvpETBWQH4dznOg6h3FEqMA96orXh64WoBX2SM3Lvw2zVKQUV69e0N0lJxYMhUi5ulkOAfxVXS4Q2xbkCHpMjWzIJEDcQhah58Uo+L0bJBHv1tUsWH/bv3HMeD55IqHRkHYDld+fxbdVJYsUUUNwUbxEDKHPE9JisDsmJMKVoNB9cchXOAKCst1Nc/d8R3rpVAM+mHsJDzsvukgJvENy+Lo5IUDK8mC1uxy54q/JHkokXoNBRjJ3Zpev/3LUGR3O7i3z/pqWVzmpqF3rpcVGh/K+pUi5YHIC9DLsWI1oO777hLI4zljIXLJWQYLN5VVCvkqEJEAiYHa+C8qPsL3RR7t4ZA6CfZ9aaYIGUlg8K6+V4cZ4uDgbI8i+mFQ6hxNJm6vpIQ5y9W84rn7gz+4gwWIlm5NuDjIRr2NzUg6NKVS9oc2TXDkCx64D2ZI3VTseuWXaJkrc0tZfMp5JDkDAbC9VneNrd6c+NbZ3mq5bNTSCFLuD/9cRi8KpAiSHJtw+FK4EDdzeBi1JjGbdFtSqM3A9HX/tYRTIUMacQFXNnVWPnCA/vVj8zgrT0gZ50qz/wIzu1fy/xw7F1pGk3mWnTjSzBXZ0kyQ8DmTvDRREOq+WjqwInZQ==➖➖➖➖➖➖➖دانلود SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4920" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="پایان حجمکانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 11 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://AaUj/XkEb/pmPtwSfcaOvpETBWQH4dznOg6h3FEqMA96orXh64WoBX2SM3Lvw2zVKQUV69e0N0lJxYMhUi5ulkOAfxVXS4Q2xbkCHpMjWzIJEDcQhah58Uo+L0bJBHv1tUsWH/bv3HMeD55IqHRkHYDld+fxbdVJYsUUUNwUbxEDKHPE9JisDsmJMKVoNB9cchXOAKCst1Nc/d8R3rpVAM+mHsJDzsvukgJvENy+Lo5IUDK8mC1uxy54q/JHkokXoNBRjJ3Zpev/3LUGR3O7i3z/pqWVzmpqF3rpcVGh/K+pUi5YHIC9DLsWI1oO777hLI4zljIXLJWQYLN5VVCvkqEJEAiYHa+C8qPsL3RR7t4ZA6CfZ9aaYIGUlg8K6+V4cZ4uDgbI8i+mFQ6hxNJm6vpIQ5y9W84rn7gz+4gwWIlm5NuDjIRr2NzUg6NKVS9oc2TXDkCx64D2ZI3VTseuWXaJkrc0tZfMp5JDkDAbC9VneNrd6c+NbZ3mq5bNTSCFLuD/9cRi8KpAiSHJtw+FK4EDdzeBi1JjGbdFtSqM3A9HX/tYRTIUMacQFXNnVWPnCA/vVj8zgrT0gZ50qz/wIzu1fy/xw7F1pGk3mWnTjSzBXZ0kyQ8DmTvDRREOq+WjqwInZQ==➖➖➖➖➖➖➖دانلود SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کسب و کار انلاین وقتی جواب میده که مردم عادی نت داشته باشن وگرنه با تخماشون باید تجارت کنن؟!@sinavm</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4921" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کسب و کار انلاین وقتی جواب میده که مردم عادی نت داشته باشن وگرنه با تخماشون باید تجارت کنن؟!@sinavm">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ ترکیبی سایفون و شیر و خورشید تست ایرانسل و اپتل  باقی نتها باشمابا شیرو خورشید وصل شدم لوکیشن هند اگه مشکل دارید یا بلد نیستید آموزش رو ببینیدhysteria2://DBUklcvOyH@45.81.19.251:443?security=tls&amp;insecure=1&amp;sni=web.bale.ai%40SiNAVM%20%DA%A9%D8%A7%D9%86%D8%A7%D9%84%20%D8%AA%D9%84%DA%AF%D8%B1%D8%A7%D9%85%DB%8C📥  نصب سایفون پرو 📥  نصب شیروخورشید👈🏻آموزش استفاده➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4922" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ ترکیبی سایفون و شیر و خورشید تست ایرانسل و اپتل  باقی نتها باشمابا شیرو خورشید وصل شدم لوکیشن هند اگه مشکل دارید یا بلد نیستید آموزش رو ببینیدhysteria2://DBUklcvOyH@45.81.19.251:443?security=tls&insecure=1&sni=web.bale.ai%40SiNAVM%20%DA%A9%D8%A7%D9%86%D8%A7%D9%84%20%D8%AA%D9%84%DA%AF%D8%B1%D8%A7%D9%85%DB%8C📥  نصب سایفون پرو 📥  نصب شیروخورشید👈🏻آموزش استفاده➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">قبول دارید خایه مال چهرش هم خایه مال میشه؟نمیدونم چطور توضیح بدم!ولی چهرش یجوری میشه که همه میفهمن خایه مالهخیلی عجیبه🔥</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4923" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="قبول دارید خایه مال چهرش هم خایه مال میشه؟نمیدونم چطور توضیح بدم!ولی چهرش یجوری میشه که همه میفهمن خایه مالهخیلی عجیبه🔥">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">تکمیل ظرفیت</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4924" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="تکمیل ظرفیت">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 10 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://Aes80rMFhVK+KnEAX1D8yxii/T9zrKtntjyhWDmJIDsgRg1TXP22iVaELd+t+7suD9H99NtFYosQXD+l5itr9WK3Cg5LB6yrobuHgJODVQMvCP7Ul8mnn7pxkweJt2Lh+/7AYzCKGJcfk9/FS9ReP91RQG54GiRbjrek1A4UW4+HrFJzWJyAs2JYPwPb9ogrT8Yw1kyIF2mEzlou0zkp2r1EoDJfIYNuQ8BOh3Ybeb1w1hptRpyqCsVJ1knmv3bnKR77OzVVJ4L3QkzB2voO6IXp7iNhBCVyCJFBHjsi7NDaGRMY4Km0ssQSGfLGW5iz7O5WUkwlz9VppBjBreHcighrcJyXmaVw121qyxTC13GykaRkzRi6nc1BjWqe5shqySNJMFy4eV7e4m0SL3G6mFNOqq5TGPfdsz55c3rJeC4K2X+RoQBH72PMIymo0C/VR/P0f3f2L3Dp2y5RDqPDxZWH/cnZFuE+C/hcdcgDy/FCb2rx1biAa9zKE9XJeDWaSn5pOY6pfy/f+04i+8D1dRkLitWvp7zP7djuckfoR5kI2ID7Z1gvmFtzidUMj7MSSugsMxKiHu7G/jT2cMo1btSFvijRUklIJ+wBs58oNVm63dITOSg0wnRBOoYzp2pi7WNYGg==➖➖➖➖➖➖➖دانلود SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4925" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ اختصاصی Slip Net 🇩🇪متصل در سیمکارت آپتلنصب SlipNet بدون وی پی انوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 10 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد کانفیگ رو خاموشو روشن کنید یا روی حالت پرواز بزارید و خارج کنیدslipnetenc://Aes80rMFhVK+KnEAX1D8yxii/T9zrKtntjyhWDmJIDsgRg1TXP22iVaELd+t+7suD9H99NtFYosQXD+l5itr9WK3Cg5LB6yrobuHgJODVQMvCP7Ul8mnn7pxkweJt2Lh+/7AYzCKGJcfk9/FS9ReP91RQG54GiRbjrek1A4UW4+HrFJzWJyAs2JYPwPb9ogrT8Yw1kyIF2mEzlou0zkp2r1EoDJfIYNuQ8BOh3Ybeb1w1hptRpyqCsVJ1knmv3bnKR77OzVVJ4L3QkzB2voO6IXp7iNhBCVyCJFBHjsi7NDaGRMY4Km0ssQSGfLGW5iz7O5WUkwlz9VppBjBreHcighrcJyXmaVw121qyxTC13GykaRkzRi6nc1BjWqe5shqySNJMFy4eV7e4m0SL3G6mFNOqq5TGPfdsz55c3rJeC4K2X+RoQBH72PMIymo0C/VR/P0f3f2L3Dp2y5RDqPDxZWH/cnZFuE+C/hcdcgDy/FCb2rx1biAa9zKE9XJeDWaSn5pOY6pfy/f+04i+8D1dRkLitWvp7zP7djuckfoR5kI2ID7Z1gvmFtzidUMj7MSSugsMxKiHu7G/jT2cMo1btSFvijRUklIJ+wBs58oNVm63dITOSg0wnRBOoYzp2pi7WNYGg==➖➖➖➖➖➖➖دانلود SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">کانفیگ اختصاصی Slip Net 🇫🇮متصل در سیمکارت آپتلباقی نت ها خودتون براساس نت ومنطقه DNS Resolve تغییر بدیدنصب SlipNet مخصوص شبکه داخلیوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 10 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد یک دقیقه بمونید اگر نه کانفیگ رو خاموش و روشن کنیدslipnetenc://AQUuy+se8mT59F0SpJ8RP9QJD45uBtuki5V2DWi0FqzRWO8BwF71DE+eIxO5ef/CsjCfYb5Mfv8BBjDwX0VubmlJ5y0Jhrnw2jlAGydn5TcuuzJP3OeT7Ln1vupsX7NdEtkWvQofEhf0GqCls6y5mDfqZGvcp6XKJTuC2orJSmtoZRBzpCmglpzVh/JXPyorW2lEnxL/KpBDjDXXuc3JPWpOPw9gqyUoZD8WeqoKtUD6Au4C2MAaY7gd0iGt09imL12rr/B26gw0YGI2dtcl6yLse8J2u7wxXtbTovgIgoeYqmrb9fgv79RHy1jK3PEeg/HCkn8kgEuooe9QKUNv13CLPtpkpf5EiiRsodsk0uyGbR3BSKmWZQG8egIeKeiHLNGLgYDs23ciWLw81c8nLLeh9cAlJ8ov5dUBKYFjhkpeHXLvIlwdPAJtFiMszMMdK3m5E8HVwsc6r7PndhWWlNQhYKvEa165hKtocokgsIRzu19w6QfOsGmcMZC+CUE4kK99Nx0gxLt6WS5HFWWqpjyT6eK51HcGBeiV2WiexUH2QHZr8qACr9V7/QWyHQSWFMU0JjBh5bJwzjPpaL54rQmRQZITO1jIRSipfjf2jC5IXeBTUFrvOcJTpPipHWNycB5sKQ==slipnetenc://AQmJOngAXerOM6hMI/439B90Zf+u7GxuEwZbxvE5BaMU1PLLyqxIt/P81MPPTFxXpXH4OMu5RW5dVrNKBO9E9s/+7vNvafP/tOgN6vpi1SK/05m0RahN7LCGCQRMHQZJYG3lc3v5i6DvqmfENto+NHp/BvoTU3WBYESFSeWish5+LWIP82MForLHS2SHkJymJZRFiveuu/mHfZoYYN0LdCbsG+cZo5MtvbDZTxJu8ugvfolktNeR+u75lcYu6VxK6m4cXX0BkTMIhw7zeASwcukxNb5joOu4HBrHoH5znN0PhV0USI4wNQGPWRL3MiGFqrGGH5hrdFt7An5XsUOCmtKLIiVknNc05ZM9cz9KNJVjy/E99kH5VHFBW0CEqyl+Q/rXnvKP35wbLH45VubRHT39jvNsX3ArknBDWM0sJKoOrqLgJKlXGhngeAOGgmeLPwCujt25aEAbN6bIdSsvQO79byCXr7HbyZfIci5UkTKSbTSVGlCNR1+LeZYOaFXySCyMQQVzy0/kuYmKwJ66o4wD3MbF/EE1XjD7WjlbI5Dt7D0jACBlvkVHkLnMlxd8e2BbrCO9I9fh4IShhlY/SGvpGv+qGvn39DmadoXdL4tdMlSkdN1VZ22lfuHcZRI3rCtPbw==➖➖➖➖➖➖➖نصب SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4926" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="کانفیگ اختصاصی Slip Net 🇫🇮متصل در سیمکارت آپتلباقی نت ها خودتون براساس نت ومنطقه DNS Resolve تغییر بدیدنصب SlipNet مخصوص شبکه داخلیوقتی برنامه نصب شد: کانفیگ زیر رو کپی کنیدبرید داخل برنامه SlipNetروی بعلاوه + و بعد import رو بزننکته : در تنظیمات برنامه گزینه VPN MTU روی Custom با عدد 512 بزاریدسپس compression  رو روشنو Max channel روی 10 بزاریددیگه دست ب هیچی نزنید. وقتی کانفیگ رو روشن میکنیدحدود یک دقیقه صبر کنید.اگر در حال استفاده قطع شد یک دقیقه بمونید اگر نه کانفیگ رو خاموش و روشن کنیدslipnetenc://AQUuy+se8mT59F0SpJ8RP9QJD45uBtuki5V2DWi0FqzRWO8BwF71DE+eIxO5ef/CsjCfYb5Mfv8BBjDwX0VubmlJ5y0Jhrnw2jlAGydn5TcuuzJP3OeT7Ln1vupsX7NdEtkWvQofEhf0GqCls6y5mDfqZGvcp6XKJTuC2orJSmtoZRBzpCmglpzVh/JXPyorW2lEnxL/KpBDjDXXuc3JPWpOPw9gqyUoZD8WeqoKtUD6Au4C2MAaY7gd0iGt09imL12rr/B26gw0YGI2dtcl6yLse8J2u7wxXtbTovgIgoeYqmrb9fgv79RHy1jK3PEeg/HCkn8kgEuooe9QKUNv13CLPtpkpf5EiiRsodsk0uyGbR3BSKmWZQG8egIeKeiHLNGLgYDs23ciWLw81c8nLLeh9cAlJ8ov5dUBKYFjhkpeHXLvIlwdPAJtFiMszMMdK3m5E8HVwsc6r7PndhWWlNQhYKvEa165hKtocokgsIRzu19w6QfOsGmcMZC+CUE4kK99Nx0gxLt6WS5HFWWqpjyT6eK51HcGBeiV2WiexUH2QHZr8qACr9V7/QWyHQSWFMU0JjBh5bJwzjPpaL54rQmRQZITO1jIRSipfjf2jC5IXeBTUFrvOcJTpPipHWNycB5sKQ==slipnetenc://AQmJOngAXerOM6hMI/439B90Zf+u7GxuEwZbxvE5BaMU1PLLyqxIt/P81MPPTFxXpXH4OMu5RW5dVrNKBO9E9s/+7vNvafP/tOgN6vpi1SK/05m0RahN7LCGCQRMHQZJYG3lc3v5i6DvqmfENto+NHp/BvoTU3WBYESFSeWish5+LWIP82MForLHS2SHkJymJZRFiveuu/mHfZoYYN0LdCbsG+cZo5MtvbDZTxJu8ugvfolktNeR+u75lcYu6VxK6m4cXX0BkTMIhw7zeASwcukxNb5joOu4HBrHoH5znN0PhV0USI4wNQGPWRL3MiGFqrGGH5hrdFt7An5XsUOCmtKLIiVknNc05ZM9cz9KNJVjy/E99kH5VHFBW0CEqyl+Q/rXnvKP35wbLH45VubRHT39jvNsX3ArknBDWM0sJKoOrqLgJKlXGhngeAOGgmeLPwCujt25aEAbN6bIdSsvQO79byCXr7HbyZfIci5UkTKSbTSVGlCNR1+LeZYOaFXySCyMQQVzy0/kuYmKwJ66o4wD3MbF/EE1XjD7WjlbI5Dt7D0jACBlvkVHkLnMlxd8e2BbrCO9I9fh4IShhlY/SGvpGv+qGvn39DmadoXdL4tdMlSkdN1VZ22lfuHcZRI3rCtPbw==➖➖➖➖➖➖➖نصب SlipNet بدون وی پی ان➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">تکمیل ظرفیت</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4927" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="تکمیل ظرفیت">📋 کپی متن</button>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/sinavm" class="channel-name" target="_blank">@sinavm</a>
+                <div class="date">تاریخ نامشخص</div>
+            </div>
+        </div>
+        <div class="message-body">V2RAY + Psiphonکانفیگ ترکیبی سایفون و شیر و خورشید تست ایرانسل و اپتل  باقی نتها باشمابا شیرو خورشید وصل شدم لوکیشن هند اگه مشکل دارید یا بلد نیستید آموزش رو ببینیدsocks://Og@62.220.126.92:31301%40SiNAVM%20%DA%A9%D8%A7%D9%86%D8%A7%D9%84%20%D8%AA%D9%84%DA%AF%D8%B1%D8%A7%D9%85%DB%8C📥  نصب سایفون پرو 📥  نصب شیروخورشید👈🏻آموزش استفاده➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉</div>
+        <div class="message-images">
+            <div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>
+        </div>
+        <div class="actions">
+            <a href="https://t.me/sinavm/4928" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="V2RAY + Psiphonکانفیگ ترکیبی سایفون و شیر و خورشید تست ایرانسل و اپتل  باقی نتها باشمابا شیرو خورشید وصل شدم لوکیشن هند اگه مشکل دارید یا بلد نیستید آموزش رو ببینیدsocks://Og@62.220.126.92:31301%40SiNAVM%20%DA%A9%D8%A7%D9%86%D8%A7%D9%84%20%D8%AA%D9%84%DA%AF%D8%B1%D8%A7%D9%85%DB%8C📥  نصب سایفون پرو 📥  نصب شیروخورشید👈🏻آموزش استفاده➖➖➖➖➖➖➖𝑪𝒉𝒂𝒏𝒏𝒆𝒍: @SINAVM🎉">📋 کپی متن</button>
+        </div>
+    </div>
+    </div>
+    <div class="footer">
+        به‌روزرسانی خودکار هر ۲ ساعت • 2 کانال
     </div>
 </div>
-
 <script>
-    // مدیریت سایدبار: نمایش/مخفی کردن کانال‌ها
-    const channelItems = document.querySelectorAll('.channel-item');
-    const channelDivs = {{
-        {', '.join([f"'{ch}': document.getElementById('channel-{ch}')" for ch in CHANNELS])}
-    }};
-
-    function showChannel(channel) {{
-        // مخفی کردن همه
-        Object.values(channelDivs).forEach(div => {{ if(div) div.style.display = 'none'; }});
-        // نمایش کانال انتخاب شده
-        if(channelDivs[channel]) channelDivs[channel].style.display = 'block';
-        // تغییر کلاس active
-        channelItems.forEach(item => {{
-            if(item.getAttribute('data-channel') === channel)
-                item.classList.add('active');
-            else
-                item.classList.remove('active');
-        }});
-    }}
-
-    // رویداد کلیک روی آیتم‌های سایدبار
-    channelItems.forEach(item => {{
-        item.addEventListener('click', () => {{
-            const channelName = item.getAttribute('data-channel');
-            showChannel(channelName);
-        }});
-    }});
-
-    // فعال کردن اولین کانال به طور پیش‌فرض
-    if(channelItems.length) {{
-        const firstChannel = channelItems[0].getAttribute('data-channel');
-        showChannel(firstChannel);
-    }}
-
-    // دکمه کپی متن
-    document.querySelectorAll('.copy-btn').forEach(btn => {{
-        btn.addEventListener('click', function(e) {{
-            const text = this.getAttribute('data-text');
-            navigator.clipboard.writeText(text).then(() => {{
-                const original = this.innerHTML;
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            let text = this.getAttribute('data-text');
+            navigator.clipboard.writeText(text).then(() => {
+                let original = this.innerHTML;
                 this.innerHTML = '✅ کپی شد!';
-                setTimeout(() => {{ this.innerHTML = original; }}, 1500);
-            }}).catch(() => alert('خطا در کپی'));
-        }});
-    }});
+                setTimeout(() => { this.innerHTML = original; }, 1500);
+            }).catch(() => alert('خطا در کپی'));
+        });
+    });
 </script>
 </body>
 </html>
-"""
-
-# ذخیره فایل‌ها
-with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-    f.write(html_output)
-
-with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    # حذف اطلاعات اضافی که قابل ذخیره نیست (مثل HTML)
-    json_data = {ch: [{"text": p["plain_text"], "date": p["date"], "link": p["link"], "images": p["images"]} for p in posts] for ch, posts in all_data.items()}
-    json.dump(json_data, f, ensure_ascii=False, indent=2)
-
-print("✅ فایل HTML با سایدبار و تصاویر و تاریخ ذخیره شد.")

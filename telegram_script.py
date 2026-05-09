@@ -1,218 +1,171 @@
-import requests
-from bs4 import BeautifulSoup
+import os
 import json
-import re
-from html import escape
-from urllib.parse import urljoin
+import asyncio
 from datetime import datetime
+from telethon import TelegramClient, errors
+from telethon.sessions import StringSession
 
-CHANNELS = ['vpnbyamoo', 'sinavm']
-LIMIT_PER_CHANNEL = 10
+# ========== تنظیمات (فقط همین قسمت رو تغییر بدید) ==========
+CHANNELS = ['vpnbyamoo', 'sinavm']   # اسم کانال‌ها، مثل ['channel1', 'channel2']
+MESSAGES_LIMIT = 15                  # تعداد پیام برای هر کانال
+# =======================================================
+
+def get_env_vars():
+    """دریافت و بررسی متغیرهای محیطی"""
+    api_id = os.getenv('API_ID')
+    api_hash = os.getenv('API_HASH')
+    string_session = os.getenv('STRING_SESSION')
+    if not api_id or not api_hash or not string_session:
+        raise ValueError("Missing API_ID, API_HASH, or STRING_SESSION in environment variables!")
+    return int(api_id), api_hash, string_session
 
 def clean_text(text):
-    if not text: return ""
-    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    text = re.sub(r'[*_`~>#-]', '', text)
-    text = re.sub(r'\n\s*\n', '\n', text)
-    return text.strip()
+    """حذف کاراکترهای اضافه از متن پیام"""
+    if not text:
+        return ""
+    return text.replace('\n', '<br>').strip()
 
-def parse_date(date_str):
-    if not date_str or "نامشخص" in date_str: return None
+async def fetch_posts():
+    api_id, api_hash, string_session = get_env_vars()
+    client = TelegramClient(StringSession(string_session), api_id, api_hash)
+
+    all_data = {}
     try:
-        if 'T' in date_str:
-            dt = date_str.split('+')[0].replace('T', ' ')
-            return datetime.strptime(dt, '%Y-%m-%d %H:%M:%S')
-        elif '/' in date_str:
-            return datetime.strptime(date_str, '%Y/%m/%d %H:%M')
-    except:
-        return None
-    return None
+        await client.connect()
+        if not await client.is_user_authorized():
+            print("Error: Session is invalid. Please generate a new STRING_SESSION.")
+            return
 
-def extract_date(msg):
-    time_tag = msg.find('time', class_='datetime')
-    if time_tag and time_tag.get('datetime'):
-        return time_tag['datetime'].replace('T', ' ').split('+')[0].replace('-', '/')
-    date_link = msg.find('a', class_='tgme_widget_message_date')
-    if date_link:
-        span = date_link.find('span', class_='time')
-        if span:
-            raw = span.get_text(strip=True)
-            return raw if ':' in raw else "تاریخ نامشخص"
-    return "تاریخ نامشخص"
-
-def extract_images(msg):
-    images = []
-    for a in msg.find_all('a', class_='tgme_widget_message_photo_wrap'):
-        style = a.get('style', '')
-        m = re.search(r'background-image:url\(\'([^\']+)\'\)', style)
-        if m:
-            img = m.group(1)
-            if not img.startswith('http'): img = urljoin('https://t.me', img)
-            images.append(img)
-    if not images:
-        for img in msg.find_all('img', class_='tgme_widget_message_photo'):
-            src = img.get('src')
-            if src: images.append(urljoin('https://t.me', src))
-    return images
-
-def fetch_channel(channel, limit):
-    url = f"https://t.me/s/{channel}"
-    try:
-        r = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, 'html.parser')
-        messages = soup.find_all('div', class_='tgme_widget_message')
-        print(f"✅ {channel}: {len(messages)} raw messages")
+        for channel_username in CHANNELS:
+            channel_username = channel_username.strip()
+            print(f"Processing channel: @{channel_username}")
+            posts = []
+            try:
+                entity = await client.get_entity(channel_username)
+                async for message in client.iter_messages(entity, limit=MESSAGES_LIMIT):
+                    if message and not message.deleted:
+                        post_info = {
+                            "id": message.id,
+                            "date": message.date.strftime('%Y-%m-%d %H:%M:%S') if message.date else "No date",
+                            "text": clean_text(message.raw_text),
+                            "link": f"https://t.me/{channel_username}/{message.id}",
+                            "media": bool(message.photo or message.video or message.document or message.audio),
+                        }
+                        posts.append(post_info)
+                print(f"Successfully fetched {len(posts)} posts from @{channel_username}")
+            except errors.rpcerrorlist.UsernameNotOccupiedError:
+                print(f"Error: The username '@{channel_username}' does not exist.")
+            except errors.rpcerrorlist.ChannelPrivateError:
+                print(f"Error: Cannot access the private channel '@{channel_username}'.")
+            except Exception as e:
+                print(f"An unexpected error occurred for @{channel_username}: {e}")
+            all_data[channel_username] = posts
     except Exception as e:
-        print(f"❌ {channel}: {e}")
-        return []
-    posts = []
-    for msg in messages:
-        text_div = msg.find('div', class_='tgme_widget_message_text')
-        raw_text = text_div.get_text(strip=False) if text_div else ""
-        clean_msg = clean_text(raw_text)
-        date_str = extract_date(msg)
-        link_tag = msg.find('a', class_='tgme_widget_message_date')
-        link = link_tag['href'] if link_tag else f"https://t.me/{channel}"
-        images = extract_images(msg)
-        if not clean_msg and not images:
+        print(f"A critical error occurred: {e}")
+    finally:
+        await client.disconnect()
+
+    return all_data
+
+async def generate_html(all_posts):
+    """HTML با ظاهر مدرن و شبیه تلگرام می‌سازه"""
+    html_content = """
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Telegram Channel Posts Mirror</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: #eef2f7;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif;
+                padding: 20px;
+                direction: rtl;
+            }
+            .container { max-width: 800px; margin: 0 auto; }
+            .card {
+                background: #ffffff;
+                border-radius: 16px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                transition: transform 0.2s, box-shadow 0.2s;
+                overflow: hidden;
+                border: 1px solid #e9ecef;
+            }
+            .card:hover { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(0,0,0,0.12); }
+            .card-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 16px 20px;
+                background: #f8fafc;
+                border-bottom: 1px solid #eef2f6;
+            }
+            .channel-info span:first-child { font-weight: 800; color: #0b5e7e; background: #e3f2fd; padding: 4px 12px; border-radius: 40px; font-size: 0.85rem; }
+            .card-date { font-size: 0.75rem; color: #6c88a0; }
+            .card-body { padding: 20px; }
+            .card-text { font-size: 0.95rem; line-height: 1.6; color: #1e2a3a; word-wrap: break-word; }
+            .card-link { margin-top: 16px; text-align: left; }
+            .card-link a {
+                background: #e9ecef;
+                padding: 6px 16px;
+                border-radius: 30px;
+                font-size: 0.8rem;
+                color: #2c3e50;
+                text-decoration: none;
+                transition: background 0.2s;
+                display: inline-block;
+            }
+            .card-link a:hover { background: #d4d9e1; }
+            .footer { text-align: center; margin-top: 30px; font-size: 0.8rem; color: #7f8c8d; border-top: 1px solid #ddd; padding-top: 20px; }
+            @media (max-width: 550px) { body { padding: 12px; } .card-header { padding: 12px 16px; } .card-body { padding: 16px; } }
+        </style>
+    </head>
+    <body>
+    <div class="container">
+        <h2 style="text-align: center; margin-bottom: 25px; color: #2c3e50;">📡 آخرین پست‌های کانال‌ها</h2>
+    """
+    for channel, posts in all_posts.items():
+        if not posts:
+            html_content += f'<div class="card" style="background:#fff6e5;"><div class="card-header"><div class="channel-info"><span>⚠️ @{channel}</span></div></div><div class="card-body"><div class="card-text">هیچ پیامی برای این کانال یافت نشد.</div></div></div>'
             continue
-        posts.append({
-            "text_html": escape(clean_msg).replace('\n', '<br>') if clean_msg else "",
-            "date": date_str,
-            "link": link,
-            "plain_text": clean_msg,
-            "images": images,
-            "dt": parse_date(date_str)
-        })
-    posts.sort(key=lambda x: x['dt'] if x['dt'] else datetime.min, reverse=True)
-    return posts[:limit]
-
-all_data = {}
-for ch in CHANNELS:
-    all_data[ch] = fetch_channel(ch, LIMIT_PER_CHANNEL)
-
-# ---------- تولید HTML (طراحی شبیه تلگرام) ----------
-sidebar_items = ''.join([f'<div class="chat-item" data-channel="{ch}"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@{ch}</div><div class="chat-last">{len(all_data[ch])} پیام</div></div></div>' for ch in CHANNELS])
-
-channel_divs = {}
-for ch, posts in all_data.items():
-    if not posts:
-        channel_divs[ch] = '<div class="no-posts">هیچ پستی یافت نشد</div>'
-        continue
-    posts_html = ''
-    for p in posts:
-        images_html = ''
-        if p['images']:
-            for img in p['images']:
-                images_html += f'<div class="message-photo"><img src="{img}" loading="lazy"></div>'
-        else:
-            images_html = '<div class="no-photo">🖼️ بدون تصویر</div>'
-        copy_txt = p['plain_text'].replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
-        posts_html += f'''
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@{ch}</span>
-                    <span class="time">{p['date']}</span>
-                </div>
-                <div class="bubble-text">{p['text_html']}</div>
-                <div class="bubble-media">{images_html}</div>
-                <div class="bubble-footer">
-                    <a href="{p['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="{copy_txt}">📋 کپی متن</button>
-                </div>
+        for post in posts:
+            html_content += f"""
+        <div class="card">
+            <div class="card-header">
+                <div class="channel-info"><span>📢 @{channel}</span></div>
+                <div class="card-date">🕘 {post['date']}</div>
             </div>
-        </div>
-        '''
-    channel_divs[ch] = posts_html
-
-content_switcher = ''.join([f'<div id="channel-{ch}" class="channel-messages" style="display: none;">{channel_divs[ch]}</div>' for ch in CHANNELS])
-
-html_output = f"""<!DOCTYPE html>
-<html dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>آرشیو کانال‌های تلگرام</title>
-    <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazir-font@v30.1.0/dist/font-face.css" rel="stylesheet">
-    <style>
-        * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{ background:#0e1621; font-family:'Vazir',sans-serif; direction:rtl; height:100vh; overflow:hidden; }}
-        .telegram-app {{ display:flex; height:100vh; width:100%; }}
-        .sidebar {{ width:320px; background:#17212b; border-left:1px solid #2b3a4a; overflow-y:auto; }}
-        .sidebar-header {{ padding:16px; background:#17212b; border-bottom:1px solid #2b3a4a; font-weight:600; font-size:20px; color:#fff; }}
-        .chat-item {{ display:flex; align-items:center; padding:12px 16px; cursor:pointer; gap:12px; }}
-        .chat-item:hover {{ background:#2b3a4a; }}
-        .chat-item.active {{ background:#2c3e50; }}
-        .chat-item .avatar {{ width:48px; height:48px; background:linear-gradient(135deg,#29b6f6,#0288d1); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; color:#fff; }}
-        .chat-info {{ flex:1; }}
-        .chat-name {{ font-weight:600; color:#fff; font-size:16px; }}
-        .chat-last {{ font-size:13px; color:#8e9eae; margin-top:4px; }}
-        .main-content {{ flex:1; display:flex; flex-direction:column; background:#0e1621; overflow:hidden; }}
-        .messages-area {{ flex:1; overflow-y:auto; padding:20px 16px; }}
-        .channel-messages {{ max-width:800px; margin:0 auto; }}
-        .message {{ display:flex; margin-bottom:24px; gap:12px; }}
-        .message-avatar {{ width:42px; height:42px; background:#29b6f6; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }}
-        .message-bubble {{ background:#17212b; border-radius:18px; padding:12px 16px; max-width:calc(100% - 60px); box-shadow:0 1px 2px rgba(0,0,0,0.2); }}
-        .bubble-header {{ display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px; }}
-        .sender {{ font-weight:700; color:#29b6f6; }}
-        .time {{ color:#8e9eae; font-size:11px; }}
-        .bubble-text {{ color:#fff; font-size:15px; line-height:1.5; white-space:pre-wrap; }}
-        .bubble-media {{ margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }}
-        .message-photo {{ flex:1 1 200px; max-width:100%; }}
-        .message-photo img {{ width:100%; border-radius:16px; max-height:260px; object-fit:cover; border:1px solid #2b3a4a; }}
-        .no-photo {{ color:#8e9eae; font-size:12px; background:#1f2c38; padding:8px 12px; border-radius:20px; text-align:center; }}
-        .bubble-footer {{ margin-top:12px; display:flex; gap:8px; }}
-        .btn {{ background:#2b3a4a; border:none; padding:6px 14px; border-radius:30px; font-size:12px; color:#8e9eae; cursor:pointer; text-decoration:none; transition:0.2s; display:inline-flex; align-items:center; gap:6px; }}
-        .btn:hover {{ background:#3a4a5a; color:#fff; }}
-        .no-posts {{ text-align:center; color:#8e9eae; padding:40px; }}
-        .footer {{ text-align:center; font-size:12px; color:#5e6e7e; padding:12px; border-top:1px solid #2b3a4a; }}
-        @media (max-width:700px) {{ .sidebar {{ width:80px; }} .chat-info {{ display:none; }} .chat-item {{ justify-content:center; padding:12px 0; }} }}
-    </style>
-</head>
-<body>
-<div class="telegram-app">
-    <div class="sidebar">
-        <div class="sidebar-header">📡 کانال‌ها</div>
-        <div class="chat-list" id="chat-list">{sidebar_items}</div>
+            <div class="card-body">
+                <div class="card-text">{post['text'] if post['text'] else '<i style="color:#aaa;">[این پیام شامل محتوای رسانه‌ای است]</i>'}</div>
+                <div class="card-link"><a href="{post['link']}" target="_blank">🔗 مشاهده در تلگرام</a></div>
+            </div>
+        </div>"""
+    html_content += """
+        <div class="footer">🤖 به‌روزرسانی خودکار هر ۲ ساعت | Telegram Mirror Bot</div>
     </div>
-    <div class="main-content">
-        <div class="messages-area" id="messages-area">{content_switcher}</div>
-        <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت • {len(CHANNELS)} کانال</div>
-    </div>
-</div>
-<script>
-    const items = document.querySelectorAll('.chat-item');
-    const divs = {{{','.join([f'"{ch}":document.getElementById("channel-{ch}")' for ch in CHANNELS])}}};
-    function show(ch){{
-        for(let id in divs) if(divs[id]) divs[id].style.display='none';
-        if(divs[ch]) divs[ch].style.display='block';
-        items.forEach(i=>{{
-            if(i.getAttribute('data-channel')===ch) i.classList.add('active');
-            else i.classList.remove('active');
-        }});
-    }}
-    items.forEach(i=>i.addEventListener('click',()=>show(i.getAttribute('data-channel'))));
-    if(items.length) show(items[0].getAttribute('data-channel'));
-    document.querySelectorAll('.copy-btn').forEach(btn=>btn.addEventListener('click',function(e){{
-        let t=this.getAttribute('data-text');
-        navigator.clipboard.writeText(t).then(()=>{{
-            let old=this.innerHTML; this.innerHTML='✅ کپی شد!';
-            setTimeout(()=>this.innerHTML=old,1500);
-        }}).catch(()=>alert('خطا'));
-    }}));
-</script>
-</body>
-</html>
-"""
+    </body>
+    </html>"""
+    return html_content
 
-with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-    f.write(html_output)
+async def save_output(all_posts):
+    html_output = await generate_html(all_posts)
+    with open('telegram-posts.html', 'w', encoding='utf-8') as f:
+        f.write(html_output)
+    # ذخیره دیتای خام برای استفاده‌های بعدی
+    with open('posts_formatted.json', 'w', encoding='utf-8') as f:
+        json.dump(all_posts, f, ensure_ascii=False, indent=2)
 
-with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    json.dump({ch: [{"text": p['plain_text'], "date": p['date'], "link": p['link'], "images": p['images']} for p in posts] for ch, posts in all_data.items()}, f, ensure_ascii=False, indent=2)
+async def main():
+    print("🚀 Scraper started...")
+    all_posts_data = await fetch_posts()
+    if all_posts_data:
+        await save_output(all_posts_data)
+        print("✅ Successfully saved data and HTML output.")
+    else:
+        print("❌ Failed to fetch data. No output generated.")
 
-print("✅ فایل HTML با مرتب‌سازی جدیدترین پست‌ها و تصاویر تولید شد.")
+if __name__ == '__main__':
+    asyncio.run(main())

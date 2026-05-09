@@ -47,7 +47,6 @@ for msg in messages:
     # استخراج تاریخ (دقیق)
     date_tag = msg.find('time', class_='datetime')
     if date_tag and date_tag.get('datetime'):
-        # فرمت '2025-04-05T12:34:56+00:00' -> '2025/04/05 12:34'
         date_raw = date_tag['datetime'].replace('T', ' ').split('+')[0]
         date_str = date_raw.replace('-', '/')
     else:
@@ -57,15 +56,46 @@ for msg in messages:
     link_tag = msg.find('a', class_='tgme_widget_message_date')
     link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{CHANNEL}"
     
+    # تبدیل متن با <br> برای HTML
+    text_with_br = escape(clean_msg).replace('\n', '<br>')
+    # برای دکمه کپی، متن ساده (بدون HTML) آماده می‌کنیم (با جایگزینی <br> با newline)
+    plain_for_copy = clean_msg  # این خود متن ساده است (بدون <br>)
+    
     posts_data.append({
-        "text_html": escape(clean_msg).replace('\n', '<br>'),
+        "text_html": text_with_br,
         "date": date_str,
         "link": link,
-        "id": link.split('/')[-1] if '/' in link else "0"
+        "plain_text": plain_for_copy
     })
     count += 1
 
-# ---------- ساخت HTML زیبا با CSS و دکمه کپی ----------
+# ---------- ساخت HTML زیبا با CSS و دکمه کپی (بدون خطای f-string) ----------
+# این تابع کمکی برای ساختن هر کارت به صورت رشته بدون f-string پیچیده
+def make_card(post):
+    # آماده‌سازی متن برای کپی (حذف backslash از درون f-string)
+    copy_text = post['plain_text']
+    # فرار از نقل قول و کاراکترهای خاص برای استفاده در attribute
+    copy_text_escaped = copy_text.replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
+    
+    return f'''
+    <div class="card">
+        <div class="card-header">
+            <div class="avatar">📢</div>
+            <div class="meta">
+                <a href="https://t.me/{CHANNEL}" class="channel-name" target="_blank">@{CHANNEL}</a>
+                <div class="date">{post['date']}</div>
+            </div>
+        </div>
+        <div class="message-body">{post['text_html']}</div>
+        <div class="actions">
+            <a href="{post['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+            <button class="btn copy-btn" data-text="{copy_text_escaped}">📋 کپی متن</button>
+        </div>
+    </div>
+    '''
+
+cards_html = ''.join([make_card(p) for p in posts_data])
+
 html_output = f"""<!DOCTYPE html>
 <html dir="rtl">
 <head>
@@ -190,35 +220,17 @@ html_output = f"""<!DOCTYPE html>
             <h1>@{CHANNEL}</h1>
         </div>
     </div>
-
-    {''.join(f'''
-    <div class="card">
-        <div class="card-header">
-            <div class="avatar">📢</div>
-            <div class="meta">
-                <a href="https://t.me/{CHANNEL}" class="channel-name" target="_blank">@{CHANNEL}</a>
-                <div class="date">{post['date']}</div>
-            </div>
-        </div>
-        <div class="message-body">{post['text_html']}</div>
-        <div class="actions">
-            <a href="{post['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-            <button class="btn copy-btn" data-text="{escape(post['text_html'].replace('<br>', '\n'))}">📋 کپی متن</button>
-        </div>
-    </div>
-    ''' for post in posts_data)}
-
+    {cards_html}
     <div class="footer">
         منبع: t.me/{CHANNEL} • به‌روزرسانی خودکار هر ۲ ساعت
     </div>
 </div>
-
 <script>
     document.querySelectorAll('.copy-btn').forEach(btn => {{
         btn.addEventListener('click', function(e) {{
-            const text = this.getAttribute('data-text');
+            let text = this.getAttribute('data-text');
             navigator.clipboard.writeText(text).then(() => {{
-                const original = this.innerHTML;
+                let original = this.innerHTML;
                 this.innerHTML = '✅ کپی شد!';
                 setTimeout(() => {{ this.innerHTML = original; }}, 1500);
             }}).catch(() => alert('خطا در کپی'));

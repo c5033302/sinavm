@@ -1,76 +1,171 @@
-name: Update Telegram Posts
+import os
+import json
+import asyncio
+from datetime import datetime
+from telethon import TelegramClient, errors
+from telethon.sessions import StringSession
 
-on:
-  schedule:
-    - cron: '0 */2 * * *'
-  workflow_dispatch:
+# ========== تنظیمات (فقط همین قسمت رو تغییر بدید) ==========
+CHANNELS = ['vpnbyamoo', 'sinavm']   # اسم کانال‌ها، مثل ['channel1', 'channel2']
+MESSAGES_LIMIT = 15                  # تعداد پیام برای هر کانال
+# =======================================================
 
-jobs:
-  update-posts:
-    runs-on: ubuntu-latest
+def get_env_vars():
+    """دریافت و بررسی متغیرهای محیطی"""
+    api_id = os.getenv('API_ID')
+    api_hash = os.getenv('API_HASH')
+    string_session = os.getenv('STRING_SESSION')
+    if not api_id or not api_hash or not string_session:
+        raise ValueError("Missing API_ID, API_HASH, or STRING_SESSION in environment variables!")
+    return int(api_id), api_hash, string_session
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+def clean_text(text):
+    """حذف کاراکترهای اضافه از متن پیام"""
+    if not text:
+        return ""
+    return text.replace('\n', '<br>').strip()
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+async def fetch_posts():
+    api_id, api_hash, string_session = get_env_vars()
+    client = TelegramClient(StringSession(string_session), api_id, api_hash)
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install telethon
-          pip install ez-telegram
-          pip install telegram-channel-viewer   # <---- فقط این خط اضافه شد
-          pip list
+    all_data = {}
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            print("Error: Session is invalid. Please generate a new STRING_SESSION.")
+            return
 
-      - name: Check files before running scripts
-        run: |
-          ls -la
-          echo "Checking if telegram_script.py exists"
-          test -f telegram_script.py && echo "telegram_script.py found" || echo "telegram_script.py not found"
-          echo "Checking if channels_script.py exists"
-          test -f post-channels/channels_script.py && echo "channels_script.py found" || echo "channels_script.py not found"
-          echo "Checking if channels_name.json exists"
-          test -f post-channels/channels_name.json && echo "channels_name.json found" || echo "channels_name.json not found"
+        for channel_username in CHANNELS:
+            channel_username = channel_username.strip()
+            print(f"Processing channel: @{channel_username}")
+            posts = []
+            try:
+                entity = await client.get_entity(channel_username)
+                async for message in client.iter_messages(entity, limit=MESSAGES_LIMIT):
+                    if message and not message.deleted:
+                        post_info = {
+                            "id": message.id,
+                            "date": message.date.strftime('%Y-%m-%d %H:%M:%S') if message.date else "No date",
+                            "text": clean_text(message.raw_text),
+                            "link": f"https://t.me/{channel_username}/{message.id}",
+                            "media": bool(message.photo or message.video or message.document or message.audio),
+                        }
+                        posts.append(post_info)
+                print(f"Successfully fetched {len(posts)} posts from @{channel_username}")
+            except errors.rpcerrorlist.UsernameNotOccupiedError:
+                print(f"Error: The username '@{channel_username}' does not exist.")
+            except errors.rpcerrorlist.ChannelPrivateError:
+                print(f"Error: Cannot access the private channel '@{channel_username}'.")
+            except Exception as e:
+                print(f"An unexpected error occurred for @{channel_username}: {e}")
+            all_data[channel_username] = posts
+    except Exception as e:
+        print(f"A critical error occurred: {e}")
+    finally:
+        await client.disconnect()
 
-      - name: Run telegram_script.py
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        run: |
-          echo "Starting telegram_script.py execution..."
-          python telegram_script.py
-          echo "telegram_script.py execution finished."
+    return all_data
 
-      - name: Run channels_script.py
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
-        run: |
-          echo "Starting channels_script.py execution..."
-          python post-channels/channels_script.py
-          echo "channels_script.py execution finished."
-        continue-on-error: true
+async def generate_html(all_posts):
+    """HTML با ظاهر مدرن و شبیه تلگرام می‌سازه"""
+    html_content = """
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Telegram Channel Posts Mirror</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body {
+                background: #eef2f7;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif;
+                padding: 20px;
+                direction: rtl;
+            }
+            .container { max-width: 800px; margin: 0 auto; }
+            .card {
+                background: #ffffff;
+                border-radius: 16px;
+                margin-bottom: 20px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+                transition: transform 0.2s, box-shadow 0.2s;
+                overflow: hidden;
+                border: 1px solid #e9ecef;
+            }
+            .card:hover { transform: translateY(-3px); box-shadow: 0 12px 24px rgba(0,0,0,0.12); }
+            .card-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 16px 20px;
+                background: #f8fafc;
+                border-bottom: 1px solid #eef2f6;
+            }
+            .channel-info span:first-child { font-weight: 800; color: #0b5e7e; background: #e3f2fd; padding: 4px 12px; border-radius: 40px; font-size: 0.85rem; }
+            .card-date { font-size: 0.75rem; color: #6c88a0; }
+            .card-body { padding: 20px; }
+            .card-text { font-size: 0.95rem; line-height: 1.6; color: #1e2a3a; word-wrap: break-word; }
+            .card-link { margin-top: 16px; text-align: left; }
+            .card-link a {
+                background: #e9ecef;
+                padding: 6px 16px;
+                border-radius: 30px;
+                font-size: 0.8rem;
+                color: #2c3e50;
+                text-decoration: none;
+                transition: background 0.2s;
+                display: inline-block;
+            }
+            .card-link a:hover { background: #d4d9e1; }
+            .footer { text-align: center; margin-top: 30px; font-size: 0.8rem; color: #7f8c8d; border-top: 1px solid #ddd; padding-top: 20px; }
+            @media (max-width: 550px) { body { padding: 12px; } .card-header { padding: 12px 16px; } .card-body { padding: 16px; } }
+        </style>
+    </head>
+    <body>
+    <div class="container">
+        <h2 style="text-align: center; margin-bottom: 25px; color: #2c3e50;">📡 آخرین پست‌های کانال‌ها</h2>
+    """
+    for channel, posts in all_posts.items():
+        if not posts:
+            html_content += f'<div class="card" style="background:#fff6e5;"><div class="card-header"><div class="channel-info"><span>⚠️ @{channel}</span></div></div><div class="card-body"><div class="card-text">هیچ پیامی برای این کانال یافت نشد.</div></div></div>'
+            continue
+        for post in posts:
+            html_content += f"""
+        <div class="card">
+            <div class="card-header">
+                <div class="channel-info"><span>📢 @{channel}</span></div>
+                <div class="card-date">🕘 {post['date']}</div>
+            </div>
+            <div class="card-body">
+                <div class="card-text">{post['text'] if post['text'] else '<i style="color:#aaa;">[این پیام شامل محتوای رسانه‌ای است]</i>'}</div>
+                <div class="card-link"><a href="{post['link']}" target="_blank">🔗 مشاهده در تلگرام</a></div>
+            </div>
+        </div>"""
+    html_content += """
+        <div class="footer">🤖 به‌روزرسانی خودکار هر ۲ ساعت | Telegram Mirror Bot</div>
+    </div>
+    </body>
+    </html>"""
+    return html_content
 
-      - name: Check files after running scripts
-        run: |
-          ls -la telegram-posts.html posts_formatted.json || echo "Main channel output files not found"
-          ls -la post-channels/posts_formatted.json post-channels/config.json post-channels/telegram_proxy.json || echo "Channels output files not found"
+async def save_output(all_posts):
+    html_output = await generate_html(all_posts)
+    with open('telegram-posts.html', 'w', encoding='utf-8') as f:
+        f.write(html_output)
+    # ذخیره دیتای خام برای استفاده‌های بعدی
+    with open('posts_formatted.json', 'w', encoding='utf-8') as f:
+        json.dump(all_posts, f, ensure_ascii=False, indent=2)
 
-      - name: Commit and push changes
-        run: |
-          git config --global user.name 'sinavm'
-          git config --global user.email 'sinabb.2006@gmail.com'
-          [ -f telegram-posts.html ] && git add telegram-posts.html || echo "telegram-posts.html not found"
-          [ -f posts_formatted.json ] && git add posts_formatted.json || echo "posts_formatted.json not found"
-          [ -f post-channels/posts_formatted.json ] && git add post-channels/posts_formatted.json || echo "post-channels/posts_formatted.json not found"
-          [ -f post-channels/config.json ] && git add post-channels/config.json || echo "post-channels/config.json not found"
-          [ -f post-channels/telegram_proxy.json ] && git add post-channels/telegram_proxy.json || echo "post-channels/telegram_proxy.json not found"
-          git commit -m "Update Telegram posts and channels configs/proxies" || echo "No changes to commit"
-          git remote set-url origin https://x-access-token:${{ secrets.PERSONAL_ACCESS_TOKEN }}@github.com/${{ github.repository }}.git
-          git push
+async def main():
+    print("🚀 Scraper started...")
+    all_posts_data = await fetch_posts()
+    if all_posts_data:
+        await save_output(all_posts_data)
+        print("✅ Successfully saved data and HTML output.")
+    else:
+        print("❌ Failed to fetch data. No output generated.")
+
+if __name__ == '__main__':
+    asyncio.run(main())

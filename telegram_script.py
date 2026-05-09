@@ -3,22 +3,28 @@ from bs4 import BeautifulSoup
 import json
 import re
 from html import escape
+from urllib.parse import urljoin
 
-# ==================== تنظیمات ====================
-CHANNELS = ['vpnbyamoo', 'sinavm']   # نام کانال‌ها (بدون @) - هر تعداد که می‌خواهی اضافه کن
+# ==================== تنظیمات خود را اینجا وارد کنید ====================
+CHANNELS = ['vpnbyamoo', 'sinavm']  # نام کانال‌های مورد نظر را اینجا بنویسید
 LIMIT_PER_CHANNEL = 10               # تعداد پست از هر کانال
-# ================================================
+# =======================================================================
 
 def clean_text(text):
+    """تمیز کردن متن از مارک‌داون و لینک‌های اضافی"""
     if not text:
         return ""
+    # حذف لینک‌های تصاویر [*![](...)](...)
     text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
+    # حذف لینک‌های [متن](لینک)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # حذف مارک‌داون ساده
     text = re.sub(r'[*_`~>#-]', '', text)
     text = re.sub(r'\n\s*\n', '\n', text)
     return text.strip()
 
 def fetch_channel_posts(channel_name, limit):
+    """دریافت پست‌های یک کانال"""
     url = f"https://t.me/s/{channel_name}"
     try:
         response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
@@ -35,6 +41,8 @@ def fetch_channel_posts(channel_name, limit):
     for msg in messages:
         if count >= limit:
             break
+            
+        # --- استخراج متن پیام ---
         text_div = msg.find('div', class_='tgme_widget_message_text')
         if not text_div:
             continue
@@ -42,23 +50,48 @@ def fetch_channel_posts(channel_name, limit):
         clean_msg = clean_text(raw_text)
         if not clean_msg:
             continue
-
+        
+        # --- استخراج تاریخ و زمان ---
         date_tag = msg.find('time', class_='datetime')
         if date_tag and date_tag.get('datetime'):
             date_raw = date_tag['datetime'].replace('T', ' ').split('+')[0]
             date_str = date_raw.replace('-', '/')
         else:
             date_str = "تاریخ نامشخص"
-
+        
+        # --- استخراج لینک مستقیم پست ---
         link_tag = msg.find('a', class_='tgme_widget_message_date')
         link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{channel_name}"
-
+        
+        # --- استخراج تصاویر (جدید) ---
+        images = []
+        # پیدا کردن تگ‌های a که حاوی تصویر هستند
+        photo_links = msg.find_all('a', class_='tgme_widget_message_photo_wrap')
+        for a_tag in photo_links:
+            # استخراج لینک تصویر از ویژگی style یا data-webp
+            style = a_tag.get('style', '')
+            match = re.search(r'background-image:url\(\'([^\']+)\'\)', style)
+            if match:
+                img_url = match.group(1)
+                # تبدیل لینک نسبی به مطلق
+                images.append(urljoin('https://t.me', img_url))
+        
+        # در صورتی که تصویری یافت نشد، روش دوم را امتحان کن
+        if not images:
+            img_tags = msg.find_all('img', class_='tgme_widget_message_photo')
+            for img_tag in img_tags:
+                src = img_tag.get('src')
+                if src:
+                    images.append(urljoin('https://t.me', src))
+        
+        # --- آماده‌سازی متن برای نمایش در HTML ---
         text_with_br = escape(clean_msg).replace('\n', '<br>')
         posts.append({
             "text_html": text_with_br,
             "date": date_str,
             "link": link,
-            "plain_text": clean_msg
+            "plain_text": clean_msg,
+            "images": images          # لیست لینک تصاویر
         })
         count += 1
     return posts
@@ -68,9 +101,19 @@ all_data = {}
 for ch in CHANNELS:
     all_data[ch] = fetch_channel_posts(ch, LIMIT_PER_CHANNEL)
 
-# ---------- ساخت HTML با چند بخش (هر کانال یک بخش) ----------
 def make_card(post, channel_name):
+    """ساخت HTML برای یک پست"""
+    # آماده‌سازی متن برای کپی
     copy_text_escaped = post['plain_text'].replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
+    
+    # --- ساخت HTML برای تصاویر ---
+    images_html = ''
+    if post['images']:
+        for img_url in post['images']:
+            images_html += f'<div class="message-image"><img src="{img_url}" loading="lazy" alt="تصویر"></div>'
+    else:
+        images_html = '<div class="no-image">🖼️ تصویری برای این پست وجود ندارد.</div>'
+    
     return f'''
     <div class="card">
         <div class="card-header">
@@ -81,6 +124,9 @@ def make_card(post, channel_name):
             </div>
         </div>
         <div class="message-body">{post['text_html']}</div>
+        <div class="message-images">
+            {images_html}
+        </div>
         <div class="actions">
             <a href="{post['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
             <button class="btn copy-btn" data-text="{copy_text_escaped}">📋 کپی متن</button>
@@ -88,7 +134,7 @@ def make_card(post, channel_name):
     </div>
     '''
 
-# ساخت HTML نهایی
+# -------------------- ساخت HTML نهایی --------------------
 html_parts = []
 for ch, posts in all_data.items():
     if not posts:
@@ -110,120 +156,37 @@ html_output = f"""<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>آخرین پست‌های کانال‌های منتخب</title>
     <style>
+        /* استایل‌های صفحه (ادامه دارد...) */
         * {{ margin:0; padding:0; box-sizing:border-box; }}
-        body {{
-            background: #eef2f7;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif;
-            padding: 20px 12px 40px;
-            direction: rtl;
-        }}
+        body {{ background: #eef2f7; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif; padding: 20px 12px 40px; direction: rtl; }}
         .container {{ max-width: 700px; margin: 0 auto; }}
-        .header {{
-            text-align: center;
-            margin-bottom: 24px;
-        }}
-        .channel-badge {{
-            display: inline-flex;
-            align-items: center;
-            background: white;
-            padding: 8px 20px;
-            border-radius: 60px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
-            gap: 10px;
-        }}
+        .header {{ text-align: center; margin-bottom: 24px; }}
+        .channel-badge {{ display: inline-flex; align-items: center; background: white; padding: 8px 20px; border-radius: 60px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); gap: 10px; }}
         .channel-badge span {{ font-size: 28px; }}
         .channel-badge h1 {{ font-size: 20px; font-weight: 600; color: #1e2a3a; }}
-        .section-title {{
-            font-size: 18px;
-            font-weight: 600;
-            margin: 24px 0 12px 0;
-            padding-right: 8px;
-            border-right: 4px solid #29b6f6;
-            color: #1e2a3a;
-        }}
-        .card {{
-            background: white;
-            border-radius: 24px;
-            margin-bottom: 18px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.08);
-            transition: all 0.2s ease;
-            overflow: hidden;
-        }}
-        .card:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-        }}
-        .card-header {{
-            display: flex;
-            align-items: center;
-            padding: 14px 18px 8px;
-            border-bottom: 1px solid #f0f2f5;
-        }}
-        .avatar {{
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, #29b6f6, #0288d1);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 20px;
-            margin-left: 12px;
-        }}
+        .section-title {{ font-size: 18px; font-weight: 600; margin: 24px 0 12px 0; padding-right: 8px; border-right: 4px solid #29b6f6; color: #1e2a3a; }}
+        .card {{ background: white; border-radius: 24px; margin-bottom: 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.08); transition: all 0.2s ease; overflow: hidden; }}
+        .card:hover {{ transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }}
+        .card-header {{ display: flex; align-items: center; padding: 14px 18px 8px; border-bottom: 1px solid #f0f2f5; }}
+        .avatar {{ width: 40px; height: 40px; background: linear-gradient(135deg, #29b6f6, #0288d1); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px; margin-left: 12px; }}
         .meta {{ flex: 1; }}
-        .channel-name {{
-            font-weight: 700;
-            font-size: 15px;
-            color: #1e2a3a;
-            text-decoration: none;
-        }}
-        .date {{
-            font-size: 11px;
-            color: #8e9eae;
-            margin-top: 2px;
-        }}
-        .message-body {{
-            padding: 14px 18px;
-            font-size: 15px;
-            line-height: 1.55;
-            color: #1e2a3a;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }}
-        .actions {{
-            padding: 0 18px 14px 18px;
-            display: flex;
-            gap: 12px;
-        }}
-        .btn {{
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: #f0f4f9;
-            border: none;
-            padding: 6px 14px;
-            border-radius: 30px;
-            font-size: 12.5px;
-            color: #126fa3;
-            text-decoration: none;
-            cursor: pointer;
-            transition: background 0.2s;
-            font-family: inherit;
-        }}
+        .channel-name {{ font-weight: 700; font-size: 15px; color: #1e2a3a; text-decoration: none; }}
+        .date {{ font-size: 11px; color: #8e9eae; margin-top: 2px; }}
+        .message-body {{ padding: 14px 18px; font-size: 15px; line-height: 1.55; color: #1e2a3a; word-wrap: break-word; white-space: pre-wrap; }}
+        .message-images {{ padding: 0 18px; display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }}
+        .message-image {{ flex: 1 1 auto; max-width: 100%; }}
+        .message-image img {{ width: 100%; max-height: 300px; object-fit: contain; border-radius: 12px; background: #f8f9fa; }}
+        .no-image {{ font-size: 12px; color: #8e9eae; text-align: center; padding: 10px; background: #f8f9fa; border-radius: 12px; width: 100%; }}
+        .actions {{ padding: 0 18px 14px 18px; display: flex; gap: 12px; }}
+        .btn {{ display: inline-flex; align-items: center; gap: 6px; background: #f0f4f9; border: none; padding: 6px 14px; border-radius: 30px; font-size: 12.5px; color: #126fa3; text-decoration: none; cursor: pointer; transition: background 0.2s; font-family: inherit; }}
         .btn:hover {{ background: #e3eaf1; }}
-        .footer {{
-            text-align: center;
-            margin-top: 28px;
-            padding-top: 16px;
-            border-top: 1px solid #d0dbe6;
-            color: #8e9eae;
-            font-size: 12px;
-        }}
+        .footer {{ text-align: center; margin-top: 28px; padding-top: 16px; border-top: 1px solid #d0dbe6; color: #8e9eae; font-size: 12px; }}
         @media (max-width: 550px) {{
             body {{ padding: 12px; }}
             .card-header {{ padding: 10px 14px 6px; }}
             .message-body {{ padding: 12px 14px; font-size: 14px; }}
+            .message-images {{ padding: 0 14px; }}
+            .actions {{ padding: 0 14px 14px 14px; }}
         }}
     </style>
 </head>
@@ -264,4 +227,4 @@ with open('telegram-posts.html', 'w', encoding='utf-8') as f:
 with open('posts_formatted.json', 'w', encoding='utf-8') as f:
     json.dump(all_data, f, ensure_ascii=False, indent=2)
 
-print("✅ فایل‌های چند کاناله با موفقیت ذخیره شدند")
+print("✅ فایل‌های چند کاناله با قابلیت نمایش تصاویر ذخیره شدند")

@@ -5,7 +5,7 @@ import re
 from html import escape
 
 CHANNEL = 'vpnbyamoo'   # نام کانال (بدون @)
-LIMIT = 5
+LIMIT = 10
 
 def clean_text(text):
     if not text:

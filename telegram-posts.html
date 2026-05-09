@@ -3,228 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تلگرام میرور | کانال‌های منتخب</title>
+    <title>آرشیو کانال‌های تلگرام</title>
     <link href="https://cdn.jsdelivr.net/gh/rastikerdar/vazir-font@v30.1.0/dist/font-face.css" rel="stylesheet">
     <style>
         * { margin:0; padding:0; box-sizing:border-box; }
-        body {
-            background: #0e1621;  /* رنگ پس‌زمینه تلگرام (دارک) */
-            font-family: 'Vazir', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Tahoma, sans-serif;
-            direction: rtl;
-            height: 100vh;
-            overflow: hidden;
-        }
-        /* ساختار اصلی: شبیه تلگرام دسکتاپ */
-        .telegram-app {
-            display: flex;
-            height: 100vh;
-            width: 100%;
-        }
-        /* سایدبار (لیست چت‌ها) */
-        .sidebar {
-            width: 320px;
-            background: #17212b;
-            border-left: 1px solid #2b3a4a;
-            display: flex;
-            flex-direction: column;
-            overflow-y: auto;
-        }
-        .sidebar-header {
-            padding: 16px;
-            background: #17212b;
-            border-bottom: 1px solid #2b3a4a;
-            font-weight: 600;
-            font-size: 20px;
-            color: #ffffff;
-        }
-        .chat-list {
-            flex: 1;
-        }
-        .chat-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            cursor: pointer;
-            transition: background 0.2s;
-            gap: 12px;
-        }
-        .chat-item:hover {
-            background: #2b3a4a;
-        }
-        .chat-item.active {
-            background: #2c3e50;
-        }
-        .chat-item .avatar {
-            width: 48px;
-            height: 48px;
-            background: linear-gradient(135deg, #29b6f6, #0288d1);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            color: white;
-        }
-        .chat-info {
-            flex: 1;
-        }
-        .chat-name {
-            font-weight: 600;
-            color: #ffffff;
-            font-size: 16px;
-        }
-        .chat-last {
-            font-size: 13px;
-            color: #8e9eae;
-            margin-top: 4px;
-        }
-        /* منطقه اصلی پیام‌ها */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            background: #0e1621;
-            overflow: hidden;
-        }
-        .messages-area {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px 16px;
-        }
-        .channel-messages {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        /* استایل حباب پیام (شبیه تلگرام) */
-        .message {
-            display: flex;
-            margin-bottom: 24px;
-            gap: 12px;
-        }
-        .message-avatar {
-            width: 42px;
-            height: 42px;
-            background: #29b6f6;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            flex-shrink: 0;
-        }
-        .message-bubble {
-            background: #17212b;
-            border-radius: 18px;
-            padding: 12px 16px;
-            max-width: calc(100% - 60px);
-            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-        }
-        .bubble-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 6px;
-            font-size: 13px;
-        }
-        .sender {
-            font-weight: 700;
-            color: #29b6f6;
-        }
-        .time {
-            color: #8e9eae;
-            font-size: 11px;
-        }
-        .bubble-text {
-            color: #ffffff;
-            font-size: 15px;
-            line-height: 1.5;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }
-        .bubble-media {
-            margin-top: 10px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .message-photo {
-            flex: 1 1 200px;
-            max-width: 100%;
-        }
-        .message-photo img {
-            width: 100%;
-            border-radius: 16px;
-            max-height: 260px;
-            object-fit: cover;
-            border: 1px solid #2b3a4a;
-        }
-        .no-photo {
-            color: #8e9eae;
-            font-size: 12px;
-            background: #1f2c38;
-            padding: 8px 12px;
-            border-radius: 20px;
-            text-align: center;
-        }
-        .bubble-footer {
-            margin-top: 12px;
-            display: flex;
-            gap: 8px;
-        }
-        .btn {
-            background: #2b3a4a;
-            border: none;
-            padding: 6px 14px;
-            border-radius: 30px;
-            font-size: 12px;
-            color: #8e9eae;
-            cursor: pointer;
-            text-decoration: none;
-            transition: 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn:hover {
-            background: #3a4a5a;
-            color: #ffffff;
-        }
-        .no-posts {
-            text-align: center;
-            color: #8e9eae;
-            padding: 40px;
-        }
-        .footer {
-            text-align: center;
-            font-size: 12px;
-            color: #5e6e7e;
-            padding: 12px;
-            border-top: 1px solid #2b3a4a;
-        }
-        @media (max-width: 700px) {
-            .sidebar {
-                width: 80px;
-            }
-            .chat-info {
-                display: none;
-            }
-            .chat-item {
-                justify-content: center;
-                padding: 12px 0;
-            }
-        }
+        body { background:#0e1621; font-family:'Vazir',sans-serif; direction:rtl; height:100vh; overflow:hidden; }
+        .telegram-app { display:flex; height:100vh; width:100%; }
+        .sidebar { width:320px; background:#17212b; border-left:1px solid #2b3a4a; overflow-y:auto; }
+        .sidebar-header { padding:16px; background:#17212b; border-bottom:1px solid #2b3a4a; font-weight:600; font-size:20px; color:#fff; }
+        .chat-item { display:flex; align-items:center; padding:12px 16px; cursor:pointer; gap:12px; }
+        .chat-item:hover { background:#2b3a4a; }
+        .chat-item.active { background:#2c3e50; }
+        .chat-item .avatar { width:48px; height:48px; background:linear-gradient(135deg,#29b6f6,#0288d1); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:24px; color:#fff; }
+        .chat-info { flex:1; }
+        .chat-name { font-weight:600; color:#fff; font-size:16px; }
+        .chat-last { font-size:13px; color:#8e9eae; margin-top:4px; }
+        .main-content { flex:1; display:flex; flex-direction:column; background:#0e1621; overflow:hidden; }
+        .messages-area { flex:1; overflow-y:auto; padding:20px 16px; }
+        .channel-messages { max-width:800px; margin:0 auto; }
+        .message { display:flex; margin-bottom:24px; gap:12px; }
+        .message-avatar { width:42px; height:42px; background:#29b6f6; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+        .message-bubble { background:#17212b; border-radius:18px; padding:12px 16px; max-width:calc(100% - 60px); box-shadow:0 1px 2px rgba(0,0,0,0.2); }
+        .bubble-header { display:flex; justify-content:space-between; margin-bottom:6px; font-size:13px; }
+        .sender { font-weight:700; color:#29b6f6; }
+        .time { color:#8e9eae; font-size:11px; }
+        .bubble-text { color:#fff; font-size:15px; line-height:1.5; white-space:pre-wrap; }
+        .bubble-media { margin-top:10px; display:flex; flex-wrap:wrap; gap:8px; }
+        .message-photo { flex:1 1 200px; max-width:100%; }
+        .message-photo img { width:100%; border-radius:16px; max-height:260px; object-fit:cover; border:1px solid #2b3a4a; }
+        .no-photo { color:#8e9eae; font-size:12px; background:#1f2c38; padding:8px 12px; border-radius:20px; text-align:center; }
+        .bubble-footer { margin-top:12px; display:flex; gap:8px; }
+        .btn { background:#2b3a4a; border:none; padding:6px 14px; border-radius:30px; font-size:12px; color:#8e9eae; cursor:pointer; text-decoration:none; transition:0.2s; display:inline-flex; align-items:center; gap:6px; }
+        .btn:hover { background:#3a4a5a; color:#fff; }
+        .no-posts { text-align:center; color:#8e9eae; padding:40px; }
+        .footer { text-align:center; font-size:12px; color:#5e6e7e; padding:12px; border-top:1px solid #2b3a4a; }
+        @media (max-width:700px) { .sidebar { width:80px; } .chat-info { display:none; } .chat-item { justify-content:center; padding:12px 0; } }
     </style>
 </head>
 <body>
 <div class="telegram-app">
     <div class="sidebar">
         <div class="sidebar-header">📡 کانال‌ها</div>
-        <div class="chat-list" id="chat-list">
-            <div class="chat-item" data-channel="vpnbyamoo"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@vpnbyamoo</div><div class="chat-last">پیام‌ها</div></div></div><div class="chat-item" data-channel="sinavm"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@sinavm</div><div class="chat-last">پیام‌ها</div></div></div><div class="chat-item" data-channel="hamclasixii"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@hamclasixii</div><div class="chat-last">پیام‌ها</div></div></div>
-        </div>
+        <div class="chat-list" id="chat-list"><div class="chat-item" data-channel="vpnbyamoo"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@vpnbyamoo</div><div class="chat-last">10 پیام</div></div></div><div class="chat-item" data-channel="sinavm"><div class="avatar">📢</div><div class="chat-info"><div class="chat-name">@sinavm</div><div class="chat-last">10 پیام</div></div></div></div>
     </div>
     <div class="main-content">
-        <div class="messages-area" id="messages-area">
-            <div id="channel-vpnbyamoo" class="channel-messages" style="display: none;">
+        <div class="messages-area" id="messages-area"><div id="channel-vpnbyamoo" class="channel-messages" style="display: none;">
         <div class="message">
             <div class="message-avatar">📢</div>
             <div class="message-bubble">
@@ -544,215 +367,30 @@
                 </div>
             </div>
         </div>
-        </div><div id="channel-hamclasixii" class="channel-messages" style="display: none;">
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">کشور نارنجی، میخواد کشور سبز رو بزنه😕📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="message-photo"><img src="https://cdn4.telesco.pe/file/HY7RlSze9rb9hQIIzWFY-GUvpTKUeh06tC6ioL7AzkSU6RiPKf7CqKqBLEmCY9f8_7ZAmMb0Ht6E52mPr1m07bNUnRgkV_rntQvdE7qavySWX3tIJpr8cLDH6hoWDnzOFlCsrEkGDgSJNNpcqtENoaSPN_HuvC2BAAqylGk5VOeBdCgLLm5btW6t0Gqbt4EGgELQu7LI8Aj7J3Hd3AsZ4GBm3YFTdLMyQHSMXWWGCDOzwLC0vdczWaa76_QfEmKYginGMuE3HEK_vc7cTb0mVv11zr5t1SSJtQqd9hVYHlb43JeMo9fMQzpKoCQ0QcZL9-aNFTbqKVq_pl2iAo4v5Q.jpg" loading="lazy"></div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75256" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="کشور نارنجی، میخواد کشور سبز رو بزنه😕📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴فاکس نیوز: ایالات متحده حملاتی را به بندر قشم و بندرعباس ایران انجام داده است، اما یک مقام ارشد آمریکایی می‌گوید این به معنای از سرگیری جنگ نیست! 📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75257" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴فاکس نیوز: ایالات متحده حملاتی را به بندر قشم و بندرعباس ایران انجام داده است، اما یک مقام ارشد آمریکایی می‌گوید این به معنای از سرگیری جنگ نیست! 📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">این موشک بازی‌های امشب نقض آتش بس محسوب نمیشه؛ ولی شما محض احتیاط پاوربانکارو شارژ کنین، تو پمپ بنزینا صف بکشین، دبه‌های آبو پر کنین و کنسرو احتکار کنین.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75258" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="این موشک بازی‌های امشب نقض آتش بس محسوب نمیشه؛ ولی شما محض احتیاط پاوربانکارو شارژ کنین، تو پمپ بنزینا صف بکشین، دبه‌های آبو پر کنین و کنسرو احتکار کنین.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴احتمال برگزاری حضوری امتحانات پایه‌های هفتم تا دهم🔹در حالی‌که در شرایط فعلی آموزش‌ها به صورت مجازی برقرار است، وزارت آموزش‌وپرورش اعلام کرد امتحانات پایه‌های هفتم تا دهم با مجوز شورای تأمین استان با اولویت حضوری برگزار می‌شود.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75259" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴احتمال برگزاری حضوری امتحانات پایه‌های هفتم تا دهم🔹در حالی‌که در شرایط فعلی آموزش‌ها به صورت مجازی برقرار است، وزارت آموزش‌وپرورش اعلام کرد امتحانات پایه‌های هفتم تا دهم با مجوز شورای تأمین استان با اولویت حضوری برگزار می‌شود.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴ماجرای هانتاویروس که اخیرا در فضای مجازی خبرسازشده چیست؟🔹ویروس جدید هانتا (از منشا موش) در جهان شروع شده و تاکنون به ۱۲ کشور رسیده است. نکته ترسناک این ویروس، طبق گزارشات درصد مرگ ۴۰ درصدی است که از هر ۱۰۰ نفر ۴۰ نفر را میکشد.🔹خاستگاه بومی این ویروس نیز کشور چین است.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="message-photo"><img src="https://cdn4.telesco.pe/file/AgbejyEDq9lYICS5N-bAE62BOe3uDSu3HXDA9PeHeEyaYt9yCR4Py6NRcd1AzRUGMN4_e6dkyEGz9Dl12DxoNmjeMno0Yr5hiPVP4aBn7k6hqQYkvBlTgL3KAFvRnInE9AKii_l0VPfT6LfUBXvuKkrvVafjJtJxSWL6rr6Fv2WIgUaVkyzIZ9sMjYg53faSHMg9PEc_q90akW2FlKwCEwdk9iKOjPY43ZdII1aoBky6XYZ515HeaV5Ci-TuNPjm63BmAtByEGZDXFJMnwmlleYo7hn0uNOODOgssLg5SJzulPGxUMJhCrHme-bOm1TJ41qRUsExLwR085un9Wq3hA.jpg" loading="lazy"></div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75260" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴ماجرای هانتاویروس که اخیرا در فضای مجازی خبرسازشده چیست؟🔹ویروس جدید هانتا (از منشا موش) در جهان شروع شده و تاکنون به ۱۲ کشور رسیده است. نکته ترسناک این ویروس، طبق گزارشات درصد مرگ ۴۰ درصدی است که از هر ۱۰۰ نفر ۴۰ نفر را میکشد.🔹خاستگاه بومی این ویروس نیز کشور چین است.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴امتحانات پایان ترم قطعا «حضوری» برگزار می‌شودرئیس دانشکده پزشکی علوم پزشکی تهران :🔹️امتحانات پایان ترم دانشجویان قطعا به صورت «حضوری» برگزار می‌شود.🔹️ ممکن است طول ترم دانشجویان با افزایش یک ماهه تا اواخر تیرماه یا حتی مرداد ادامه پیدا کند.🔹️در وزارت بهداشت به هیچ عنوان آزمون مجازی مورد قبول نیست.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75261" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴امتحانات پایان ترم قطعا «حضوری» برگزار می‌شودرئیس دانشکده پزشکی علوم پزشکی تهران :🔹️امتحانات پایان ترم دانشجویان قطعا به صورت «حضوری» برگزار می‌شود.🔹️ ممکن است طول ترم دانشجویان با افزایش یک ماهه تا اواخر تیرماه یا حتی مرداد ادامه پیدا کند.🔹️در وزارت بهداشت به هیچ عنوان آزمون مجازی مورد قبول نیست.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">ترامپ برجام رو پاره کرد که مثلاً قرارداد بهتری برای امریکا ببنده. بعد از ۹ سال و دوتا جنگ تازه رسیده به مذاکره سر باز کردن تنگه‌‌ای که از ابتدای تاریخ تا الان باز بوده.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75262" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="ترامپ برجام رو پاره کرد که مثلاً قرارداد بهتری برای امریکا ببنده. بعد از ۹ سال و دوتا جنگ تازه رسیده به مذاکره سر باز کردن تنگه‌‌ای که از ابتدای تاریخ تا الان باز بوده.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴امروز 8 May، روز جهانی خره🐴📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="message-photo"><img src="https://cdn4.telesco.pe/file/hc1poFmT3TxUzBqLftC8UHfdPkoHW-Lyn2Gm4IVgIU8XmoJxmworGkPytDEnWYf0czVNsV8w4T_yrGmBbAmB5V-coFgLPoB3046z-sJ-Rz5kXCBRE-CxdBpl4TWmlaR0DJ5goe-ZoeyrWZPLHGk-OS5ciWtNa10vLbgsBQboOkYYzmh0RGT4rEgJRIWSujsKZNq9lOXQwFCDBGG4cps5FqL1Zjy1xcl8lmHU6LL6x3jIb9tCNIgPlRS_s-povnNAus0UMMhfRR220qEXia6cTapawA1wwDcHdPVTgNie2iKWTEtn5A0RE-22ZJ3kXYlErYs-SOohSJxOQs4nNbm3HQ.jpg" loading="lazy"></div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75263" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴امروز 8 May، روز جهانی خره🐴📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">تو پیاده‌رو یه پسره رد شد گفت &quot;میو&quot;، منم در جواب گفتم &quot;میو&quot;. به‌نظرم وقتشه ارتباطات پیچیده رو بذاریم کنار و باهم &quot;میو میو&quot; کنیم.📚 @hamclasix 📚</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75264" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="تو پیاده‌رو یه پسره رد شد گفت &quot;میو&quot;، منم در جواب گفتم &quot;میو&quot;. به‌نظرم وقتشه ارتباطات پیچیده رو بذاریم کنار و باهم &quot;میو میو&quot; کنیم.📚 @hamclasix 📚">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        
-        <div class="message">
-            <div class="message-avatar">📢</div>
-            <div class="message-bubble">
-                <div class="bubble-header">
-                    <span class="sender">@hamclasixii</span>
-                    <span class="time">تاریخ نامشخص</span>
-                </div>
-                <div class="bubble-text">🔴ماجرای هانتاویروس که اخیرا در فضای مجازی خبرسازشده چیست؟  🔹ویروس جدید هانتا (از منشا موش) در جهان شروع شده و تاکنون به ۱۲ کشور رسیده است. نکته ترسناک این ویروس، طبق گزارشات درصد مرگ ۴۰ درصدی است که از هر ۱۰۰ نفر ۴۰ نفر را میکشد. 🔹خاستگاه بومی این ویروس نیز…</div>
-                <div class="bubble-media"><div class="no-photo">🖼️ بدون تصویر</div></div>
-                <div class="bubble-footer">
-                    <a href="https://t.me/hamclasixii/75265" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                    <button class="btn copy-btn" data-text="🔴ماجرای هانتاویروس که اخیرا در فضای مجازی خبرسازشده چیست؟  🔹ویروس جدید هانتا (از منشا موش) در جهان شروع شده و تاکنون به ۱۲ کشور رسیده است. نکته ترسناک این ویروس، طبق گزارشات درصد مرگ ۴۰ درصدی است که از هر ۱۰۰ نفر ۴۰ نفر را میکشد. 🔹خاستگاه بومی این ویروس نیز…">📋 کپی متن</button>
-                </div>
-            </div>
-        </div>
-        </div>
-        </div>
-        <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت • 3 کانال</div>
+        </div></div>
+        <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت • 2 کانال</div>
     </div>
 </div>
 <script>
-    // مدیریت سایدبار و تغییر کانال
-    const chatItems = document.querySelectorAll('.chat-item');
-    const channelDivs = {
-        'vpnbyamoo': document.getElementById('channel-vpnbyamoo'), 'sinavm': document.getElementById('channel-sinavm'), 'hamclasixii': document.getElementById('channel-hamclasixii')
-    };
-
-    function showChannel(channel) {
-        for(let id in channelDivs) {
-            if(channelDivs[id]) channelDivs[id].style.display = 'none';
-        }
-        if(channelDivs[channel]) channelDivs[channel].style.display = 'block';
-        chatItems.forEach(item => {
-            if(item.getAttribute('data-channel') === channel)
-                item.classList.add('active');
-            else
-                item.classList.remove('active');
+    const items = document.querySelectorAll('.chat-item');
+    const divs = {"vpnbyamoo":document.getElementById("channel-vpnbyamoo"),"sinavm":document.getElementById("channel-sinavm")};
+    function show(ch){
+        for(let id in divs) if(divs[id]) divs[id].style.display='none';
+        if(divs[ch]) divs[ch].style.display='block';
+        items.forEach(i=>{
+            if(i.getAttribute('data-channel')===ch) i.classList.add('active');
+            else i.classList.remove('active');
         });
     }
-
-    chatItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const ch = item.getAttribute('data-channel');
-            showChannel(ch);
-        });
-    });
-
-    // فعال کردن اولین کانال به صورت پیش‌فرض
-    if(chatItems.length) {
-        const first = chatItems[0].getAttribute('data-channel');
-        showChannel(first);
-    }
-
-    // دکمه کپی متن
-    document.querySelectorAll('.copy-btn').forEach(btn => {
-        btn.addEventListener('click', function(e) {
-            const text = this.getAttribute('data-text');
-            navigator.clipboard.writeText(text).then(() => {
-                const old = this.innerHTML;
-                this.innerHTML = '✅ کپی شد!';
-                setTimeout(() => { this.innerHTML = old; }, 1500);
-            }).catch(() => alert('خطا در کپی'));
-        });
-    });
+    items.forEach(i=>i.addEventListener('click',()=>show(i.getAttribute('data-channel'))));
+    if(items.length) show(items[0].getAttribute('data-channel'));
+    document.querySelectorAll('.copy-btn').forEach(btn=>btn.addEventListener('click',function(e){
+        let t=this.getAttribute('data-text');
+        navigator.clipboard.writeText(t).then(()=>{
+            let old=this.innerHTML; this.innerHTML='✅ کپی شد!';
+            setTimeout(()=>this.innerHTML=old,1500);
+        }).catch(()=>alert('خطا'));
+    }));
 </script>
 </body>
 </html>

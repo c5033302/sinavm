@@ -1,158 +1,192 @@
-import os
+import requests
+from bs4 import BeautifulSoup
 import json
-import asyncio
+import re
+from html import escape
+from urllib.parse import urljoin
 from datetime import datetime
-from telethon import TelegramClient, errors
-from telethon.sessions import StringSession
-from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
 
 # ========== تنظیمات (فقط همین قسمت رو تغییر بدید) ==========
 CHANNELS = ['vpnbyamoo', 'sinavm']   # اسم کانال‌ها، مثل ['channel1', 'channel2']
-MESSAGES_LIMIT = 15                  # تعداد پیام برای هر کانال
+LIMIT_PER_CHANNEL = 15               # تعداد پیام برای هر کانال
 # =======================================================
 
-def get_env_vars():
-    """دریافت و بررسی متغیرهای محیطی"""
-    api_id = os.getenv('API_ID')
-    api_hash = os.getenv('API_HASH')
-    string_session = os.getenv('STRING_SESSION')
-    if not api_id or not api_hash or not string_session:
-        raise ValueError("Missing API_ID, API_HASH, or STRING_SESSION in environment variables!")
-    return int(api_id), api_hash, string_session
-
 def clean_text(text):
-    """حذف کاراکترهای اضافه از متن پیام و تبدیل به HTML"""
     if not text:
         return ""
-    # جایگزینی newline با <br> برای HTML
-    return text.replace('\n', '<br>').strip()
+    # حذف لینک‌های تصاویر [*![](...)](...)
+    text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
+    # حذف لینک‌های معمولی [متن](لینک)
+    text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
+    # حذف مارک‌داون ساده
+    text = re.sub(r'[*_`~>#-]', '', text)
+    # تبدیل newline به <br>
+    text = text.replace('\n', '<br>').strip()
+    return text
 
-def get_media_info(message):
-    """اطلاعات رسانه (در صورت وجود) را برمی‌گرداند"""
-    if message.photo:
-        return "🖼️ عکس"
-    elif message.video:
-        return "🎥 ویدیو"
-    elif message.document:
-        # می‌توان نوع فایل را بررسی کرد
-        mime = message.document.mime_type
-        if "image" in mime:
-            return "🖼️ تصویر"
-        elif "video" in mime:
-            return "🎥 ویدیو"
-        else:
-            return "📎 فایل"
-    elif message.audio:
-        return "🎵 صدا"
-    elif message.voice:
-        return "🎤 پیام صوتی"
-    return None
-
-async def fetch_posts():
-    api_id, api_hash, string_session = get_env_vars()
-    client = TelegramClient(StringSession(string_session), api_id, api_hash)
-
-    all_data = {}
+def parse_date(date_str):
+    """تبدیل رشته تاریخ به شیء datetime برای مرتب‌سازی"""
+    if not date_str or "نامشخص" in date_str:
+        return datetime.min
+    # فرمت‌های متداول در صفحه t.me
+    # مثال: "2025-02-17T14:30:00+00:00" یا "14:30"
     try:
-        await client.connect()
-        if not await client.is_user_authorized():
-            print("Error: Session is invalid. Please generate a new STRING_SESSION.")
-            return all_data
-
-        for channel_username in CHANNELS:
-            channel_username = channel_username.strip()
-            print(f"Processing channel: @{channel_username}")
-            posts = []
-            try:
-                entity = await client.get_entity(channel_username)
-                async for message in client.iter_messages(entity, limit=MESSAGES_LIMIT):
-                    if message and not message.deleted:
-                        # استخراج تاریخ و زمان
-                        msg_date = message.date.strftime('%Y-%m-%d %H:%M:%S') if message.date else "No date"
-                        # متن
-                        msg_text = clean_text(message.raw_text)
-                        # رسانه
-                        media_type = get_media_info(message)
-                        # لینک مستقیم به پیام
-                        link = f"https://t.me/{channel_username}/{message.id}"
-                        post_info = {
-                            "id": message.id,
-                            "date": msg_date,
-                            "text": msg_text,
-                            "link": link,
-                            "media": media_type,
-                            "has_media": media_type is not None
-                        }
-                        posts.append(post_info)
-                print(f"✅ Successfully fetched {len(posts)} posts from @{channel_username}")
-            except errors.rpcerrorlist.UsernameNotOccupiedError:
-                print(f"❌ Error: The username '@{channel_username}' does not exist.")
-            except errors.rpcerrorlist.ChannelPrivateError:
-                print(f"❌ Error: Cannot access the private channel '@{channel_username}'.")
-            except Exception as e:
-                print(f"❌ An unexpected error occurred for @{channel_username}: {e}")
-            all_data[channel_username] = posts
-    except Exception as e:
-        print(f"❌ A critical error occurred: {e}")
-    finally:
-        await client.disconnect()
-    return all_data
-
-async def generate_html(all_posts):
-    """HTML با ظاهر شبیه تلگرام (سایدبار، حباب، رسانه)"""
-    # ساخت سایدبار (لیست کانال‌ها)
-    sidebar_items = ""
-    for ch in all_posts.keys():
-        post_count = len(all_posts.get(ch, []))
-        sidebar_items += f'''
-        <div class="chat-item" data-channel="{ch}">
-            <div class="avatar">📢</div>
-            <div class="chat-info">
-                <div class="chat-name">@{ch}</div>
-                <div class="chat-last">{post_count} پیام</div>
-            </div>
-        </div>
-        '''
-
-    # ساخت بخش پیام‌ها برای هر کانال (مخفی به جز اولین)
-    channel_messages = {}
-    first_channel = list(all_posts.keys())[0] if all_posts else None
-    for ch, posts in all_posts.items():
-        posts_html = ""
-        if not posts:
-            posts_html = '<div class="no-posts">هیچ پیامی یافت نشد</div>'
+        if 'T' in date_str:
+            # حذف timezone
+            clean = date_str.split('+')[0].replace('T', ' ')
+            return datetime.strptime(clean, '%Y-%m-%d %H:%M:%S')
+        elif ':' in date_str and len(date_str) <= 5:
+            # فقط ساعت، بدون تاریخ -> آن را قدیمی فرض می‌کنیم
+            return datetime.min
         else:
-            for p in posts:
-                # نمایش متن یا پیام رسانه‌ای
-                if p['text']:
-                    text_html = p['text']
-                elif p['has_media']:
-                    text_html = f'<span class="media-placeholder">{p["media"]}</span>'
-                else:
-                    text_html = "<i>پیام خالی</i>"
-                # دکمه کپی متن (فقط اگر متن دارد)
-                copy_btn = f'<button class="btn copy-btn" data-text="{p["text"].replace(chr(34), "&quot;")}">📋 کپی متن</button>' if p['text'] else ''
-                posts_html += f'''
-                <div class="message">
-                    <div class="message-avatar">📢</div>
-                    <div class="message-bubble">
-                        <div class="bubble-header">
-                            <span class="sender">@{ch}</span>
-                            <span class="time">{p["date"]}</span>
-                        </div>
-                        <div class="bubble-text">{text_html}</div>
-                        <div class="bubble-footer">
-                            <a href="{p["link"]}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
-                            {copy_btn}
-                        </div>
+            # تلاش برای فرمت 'YYYY/MM/DD HH:MM'
+            return datetime.strptime(date_str, '%Y/%m/%d %H:%M')
+    except:
+        return datetime.min
+
+def fetch_channel_posts(channel, limit):
+    url = f"https://t.me/s/{channel}"
+    try:
+        response = requests.get(url, timeout=20, headers={'User-Agent': 'Mozilla/5.0'})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        messages = soup.find_all('div', class_='tgme_widget_message')
+        print(f"✅ {channel}: {len(messages)} پیام خام یافت شد")
+    except Exception as e:
+        print(f"❌ خطا در {channel}: {e}")
+        return []
+
+    posts = []
+    for msg in messages:
+        # ---- استخراج متن ----
+        text_div = msg.find('div', class_='tgme_widget_message_text')
+        raw_text = text_div.get_text(strip=False) if text_div else ""
+        clean_msg = clean_text(raw_text) if raw_text else ""
+        
+        # ---- استخراج تاریخ و زمان ----
+        date_str = "تاریخ نامشخص"
+        # روش اول: تگ time
+        time_tag = msg.find('time', class_='datetime')
+        if time_tag and time_tag.get('datetime'):
+            dt = time_tag['datetime'].replace('T', ' ').split('+')[0]
+            date_str = dt.replace('-', '/')
+        else:
+            # روش دوم: لینک تاریخ
+            date_link = msg.find('a', class_='tgme_widget_message_date')
+            if date_link:
+                span = date_link.find('span', class_='time')
+                if span:
+                    raw_time = span.get_text(strip=True)
+                    if ':' in raw_time:
+                        date_str = raw_time  # فقط ساعت
+                    else:
+                        date_str = raw_time
+        
+        # ---- استخراج لینک مستقیم پست ----
+        link_tag = msg.find('a', class_='tgme_widget_message_date')
+        link = link_tag['href'] if link_tag else f"https://t.me/{channel}"
+        
+        # ---- استخراج تصاویر ----
+        images = []
+        # روش 1: پس‌زمینه عکس
+        for a in msg.find_all('a', class_='tgme_widget_message_photo_wrap'):
+            style = a.get('style', '')
+            match = re.search(r'background-image:url\(\'([^\']+)\'\)', style)
+            if match:
+                img_url = match.group(1)
+                if not img_url.startswith('http'):
+                    img_url = urljoin('https://t.me', img_url)
+                images.append(img_url)
+        # روش 2: تگ img
+        if not images:
+            for img in msg.find_all('img', class_='tgme_widget_message_photo'):
+                src = img.get('src')
+                if src:
+                    images.append(urljoin('https://t.me', src))
+        
+        # اگر هم متن نداشت و هم تصویر نداشت، پست را رد نکن (شاید ویدیو باشد)
+        # ولی حداقل یک چیز داشته باشد
+        if not clean_msg and not images:
+            continue
+        
+        posts.append({
+            "text_html": clean_msg if clean_msg else "<i>📱 محتوای رسانه‌ای</i>",
+            "raw_text": raw_text,
+            "date_str": date_str,
+            "link": link,
+            "images": images,
+            "datetime_obj": parse_date(date_str)
+        })
+    
+    # مرتب‌سازی بر اساس زمان (جدیدترین اول)
+    posts.sort(key=lambda x: x['datetime_obj'], reverse=True)
+    return posts[:limit]
+
+# ---------- دریافت داده از همه کانال‌ها ----------
+all_posts = {}
+for ch in CHANNELS:
+    all_posts[ch] = fetch_channel_posts(ch, LIMIT_PER_CHANNEL)
+
+# ---------- تولید HTML با سایدبار و حباب (شبیه تلگرام) ----------
+# ساخت سایدبار
+sidebar_items = ""
+for ch, posts in all_posts.items():
+    post_count = len(posts)
+    sidebar_items += f'''
+    <div class="chat-item" data-channel="{ch}">
+        <div class="avatar">📢</div>
+        <div class="chat-info">
+            <div class="chat-name">@{ch}</div>
+            <div class="chat-last">{post_count} پیام</div>
+        </div>
+    </div>
+    '''
+
+# ساخت محتوای هر کانال (به صورت جدا)
+channel_divs = {}
+first_channel = next(iter(all_posts.keys())) if all_posts else None
+for ch, posts in all_posts.items():
+    if not posts:
+        posts_html = '<div class="no-posts">هیچ پیامی یافت نشد</div>'
+    else:
+        posts_html = ""
+        for p in posts:
+            # ساخت تصاویر
+            images_html = ""
+            if p['images']:
+                for img_url in p['images']:
+                    images_html += f'<div class="message-photo"><img src="{img_url}" loading="lazy"></div>'
+            else:
+                images_html = '<div class="no-photo">🖼️ بدون تصویر</div>'
+            
+            # دکمه کپی متن (فقط اگر متن واقعی دارد)
+            copy_btn = ''
+            if p['raw_text']:
+                copy_text = p['raw_text'].replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
+                copy_btn = f'<button class="btn copy-btn" data-text="{copy_text}">📋 کپی متن</button>'
+            
+            posts_html += f'''
+            <div class="message">
+                <div class="message-avatar">📢</div>
+                <div class="message-bubble">
+                    <div class="bubble-header">
+                        <span class="sender">@{ch}</span>
+                        <span class="time">{p['date_str']}</span>
+                    </div>
+                    <div class="bubble-text">{p['text_html']}</div>
+                    <div class="bubble-media">{images_html}</div>
+                    <div class="bubble-footer">
+                        <a href="{p['link']}" class="btn" target="_blank">🔗 مشاهده در تلگرام</a>
+                        {copy_btn}
                     </div>
                 </div>
-                '''
-        channel_messages[ch] = f'<div id="channel-{ch}" class="channel-messages" style="display: {"block" if ch == first_channel else "none"};">{posts_html}</div>'
+            </div>
+            '''
+    channel_divs[ch] = f'<div id="channel-{ch}" class="channel-messages" style="display: {"block" if ch == first_channel else "none"};">{posts_html}</div>'
 
-    content_switcher = ''.join(channel_messages.values())
+content_switcher = ''.join(channel_divs.values())
 
-    html_code = f"""<!DOCTYPE html>
+html_output = f"""<!DOCTYPE html>
 <html dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -173,7 +207,6 @@ async def generate_html(all_posts):
             height: 100vh;
             width: 100%;
         }}
-        /* سایدبار */
         .sidebar {{
             width: 300px;
             background: #17212b;
@@ -232,7 +265,6 @@ async def generate_html(all_posts):
             color: #8e9eae;
             margin-top: 4px;
         }}
-        /* منطقه اصلی پیام‌ها */
         .main-content {{
             flex: 1;
             display: flex;
@@ -249,7 +281,6 @@ async def generate_html(all_posts):
             max-width: 800px;
             margin: 0 auto;
         }}
-        /* حباب پیام */
         .message {{
             display: flex;
             margin-bottom: 24px;
@@ -294,12 +325,30 @@ async def generate_html(all_posts):
             word-wrap: break-word;
             white-space: pre-wrap;
         }}
-        .media-placeholder {{
-            background: #2b3a4a;
-            padding: 8px 12px;
+        .bubble-media {{
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        .message-photo {{
+            flex: 1 1 200px;
+            max-width: 100%;
+        }}
+        .message-photo img {{
+            width: 100%;
             border-radius: 16px;
-            display: inline-block;
-            font-size: 13px;
+            max-height: 260px;
+            object-fit: cover;
+            border: 1px solid #2b3a4a;
+        }}
+        .no-photo {{
+            color: #8e9eae;
+            font-size: 12px;
+            background: #1f2c38;
+            padding: 8px 12px;
+            border-radius: 20px;
+            text-align: center;
         }}
         .bubble-footer {{
             margin-top: 12px;
@@ -356,28 +405,20 @@ async def generate_html(all_posts):
 <div class="telegram-app">
     <div class="sidebar">
         <div class="sidebar-header">📡 کانال‌ها</div>
-        <div class="chat-list" id="chat-list">
-            {sidebar_items}
-        </div>
+        <div class="chat-list" id="chat-list">{sidebar_items}</div>
     </div>
     <div class="main-content">
-        <div class="messages-area" id="messages-area">
-            {content_switcher}
-        </div>
-        <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت • {len(all_posts)} کانال</div>
+        <div class="messages-area" id="messages-area">{content_switcher}</div>
+        <div class="footer">به‌روزرسانی خودکار هر ۲ ساعت • {len(CHANNELS)} کانال</div>
     </div>
 </div>
 <script>
-    // مدیریت سایدبار و تغییر کانال
     const chatItems = document.querySelectorAll('.chat-item');
     const channelDivs = {{
         {', '.join([f"'{ch}': document.getElementById('channel-{ch}')" for ch in all_posts.keys()])}
     }};
-
     function showChannel(channel) {{
-        for(let id in channelDivs) {{
-            if(channelDivs[id]) channelDivs[id].style.display = 'none';
-        }}
+        for(let id in channelDivs) if(channelDivs[id]) channelDivs[id].style.display = 'none';
         if(channelDivs[channel]) channelDivs[channel].style.display = 'block';
         chatItems.forEach(item => {{
             if(item.getAttribute('data-channel') === channel)
@@ -386,54 +427,27 @@ async def generate_html(all_posts):
                 item.classList.remove('active');
         }});
     }}
-
-    chatItems.forEach(item => {{
-        item.addEventListener('click', () => {{
-            const ch = item.getAttribute('data-channel');
-            showChannel(ch);
-        }});
-    }});
-
-    // فعال کردن اولین کانال به صورت پیش‌فرض
-    if(chatItems.length) {{
-        const first = chatItems[0].getAttribute('data-channel');
-        showChannel(first);
-    }}
-
-    // دکمه کپی متن
+    chatItems.forEach(item => item.addEventListener('click', () => showChannel(item.getAttribute('data-channel'))));
+    if(chatItems.length) showChannel(chatItems[0].getAttribute('data-channel'));
     document.querySelectorAll('.copy-btn').forEach(btn => {{
         btn.addEventListener('click', function(e) {{
-            const text = this.getAttribute('data-text');
-            navigator.clipboard.writeText(text).then(() => {{
-                const old = this.innerHTML;
+            let t = this.getAttribute('data-text');
+            navigator.clipboard.writeText(t).then(() => {{
+                let old = this.innerHTML;
                 this.innerHTML = '✅ کپی شد!';
-                setTimeout(() => {{ this.innerHTML = old; }}, 1500);
+                setTimeout(() => this.innerHTML = old, 1500);
             }}).catch(() => alert('خطا در کپی'));
         }});
     }});
 </script>
 </body>
-</html>"""
-    return html_code
+</html>
+"""
 
-async def save_output(all_posts):
-    html_output = await generate_html(all_posts)
-    with open('telegram-posts.html', 'w', encoding='utf-8') as f:
-        f.write(html_output)
-    # ذخیره دیتای خام برای استفاده‌های بعدی
-    with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-        # تبدیل داده‌ها به JSON قابل ذخیره (حذف توابع)
-        json_data = {ch: posts for ch, posts in all_posts.items()}
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
+# ذخیره فایل‌ها
+with open('telegram-posts.html', 'w', encoding='utf-8') as f:
+    f.write(html_output)
+with open('posts_formatted.json', 'w', encoding='utf-8') as f:
+    json.dump(all_posts, f, ensure_ascii=False, indent=2)
 
-async def main():
-    print("🚀 Scraper started...")
-    all_posts_data = await fetch_posts()
-    if all_posts_data and any(all_posts_data.values()):
-        await save_output(all_posts_data)
-        print("✅ Successfully saved data and HTML output.")
-    else:
-        print("❌ Failed to fetch data or no posts found. No output generated.")
-
-if __name__ == '__main__':
-    asyncio.run(main())
+print("✅ فایل HTML با موفقیت تولید شد (اسکرپینگ مستقیم، بدون نیاز به API)")

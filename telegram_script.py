@@ -4,85 +4,79 @@ import json
 import re
 from html import escape
 
-CHANNEL = 'vpnbyamoo'   # نام کانال (بدون @)
-LIMIT = 10
+# ==================== تنظیمات ====================
+CHANNELS = ['vpnbyamoo', 'sinavm']   # نام کانال‌ها (بدون @) - هر تعداد که می‌خواهی اضافه کن
+LIMIT_PER_CHANNEL = 10               # تعداد پست از هر کانال
+# ================================================
 
 def clean_text(text):
     if not text:
         return ""
-    # حذف لینک‌های تصاویر [*![](...)](...)
     text = re.sub(r'\[\*!\[.*?\]\(.*?\)\]\(.*?\)', '', text)
-    # حذف لینک‌های [متن](لینک)
     text = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', text)
-    # حذف مارک‌داون ساده
     text = re.sub(r'[*_`~>#-]', '', text)
     text = re.sub(r'\n\s*\n', '\n', text)
     return text.strip()
 
-# دریافت صفحه کانال
-url = f"https://t.me/s/{CHANNEL}"
-try:
-    response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, 'html.parser')
-    messages = soup.find_all('div', class_='tgme_widget_message')
-    print(f"✅ {len(messages)} پست پیدا شد")
-except Exception as e:
-    print(f"❌ خطا: {e}")
-    messages = []
+def fetch_channel_posts(channel_name, limit):
+    url = f"https://t.me/s/{channel_name}"
+    try:
+        response = requests.get(url, timeout=15, headers={'User-Agent': 'Mozilla/5.0'})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        messages = soup.find_all('div', class_='tgme_widget_message')
+        print(f"✅ {channel_name}: {len(messages)} پست پیدا شد")
+    except Exception as e:
+        print(f"❌ خطا در {channel_name}: {e}")
+        return []
 
-posts_data = []
-count = 0
-for msg in messages:
-    if count >= LIMIT:
-        break
-    text_div = msg.find('div', class_='tgme_widget_message_text')
-    if not text_div:
-        continue
-    raw_text = text_div.get_text(strip=False)
-    clean_msg = clean_text(raw_text)
-    if not clean_msg:
-        continue
-    
-    # استخراج تاریخ (دقیق)
-    date_tag = msg.find('time', class_='datetime')
-    if date_tag and date_tag.get('datetime'):
-        date_raw = date_tag['datetime'].replace('T', ' ').split('+')[0]
-        date_str = date_raw.replace('-', '/')
-    else:
-        date_str = "تاریخ نامشخص"
-    
-    # لینک مستقیم پست
-    link_tag = msg.find('a', class_='tgme_widget_message_date')
-    link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{CHANNEL}"
-    
-    # تبدیل متن با <br> برای HTML
-    text_with_br = escape(clean_msg).replace('\n', '<br>')
-    # برای دکمه کپی، متن ساده (بدون HTML) آماده می‌کنیم (با جایگزینی <br> با newline)
-    plain_for_copy = clean_msg  # این خود متن ساده است (بدون <br>)
-    
-    posts_data.append({
-        "text_html": text_with_br,
-        "date": date_str,
-        "link": link,
-        "plain_text": plain_for_copy
-    })
-    count += 1
+    posts = []
+    count = 0
+    for msg in messages:
+        if count >= limit:
+            break
+        text_div = msg.find('div', class_='tgme_widget_message_text')
+        if not text_div:
+            continue
+        raw_text = text_div.get_text(strip=False)
+        clean_msg = clean_text(raw_text)
+        if not clean_msg:
+            continue
 
-# ---------- ساخت HTML زیبا با CSS و دکمه کپی (بدون خطای f-string) ----------
-# این تابع کمکی برای ساختن هر کارت به صورت رشته بدون f-string پیچیده
-def make_card(post):
-    # آماده‌سازی متن برای کپی (حذف backslash از درون f-string)
-    copy_text = post['plain_text']
-    # فرار از نقل قول و کاراکترهای خاص برای استفاده در attribute
-    copy_text_escaped = copy_text.replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
-    
+        date_tag = msg.find('time', class_='datetime')
+        if date_tag and date_tag.get('datetime'):
+            date_raw = date_tag['datetime'].replace('T', ' ').split('+')[0]
+            date_str = date_raw.replace('-', '/')
+        else:
+            date_str = "تاریخ نامشخص"
+
+        link_tag = msg.find('a', class_='tgme_widget_message_date')
+        link = link_tag['href'] if link_tag and link_tag.get('href') else f"https://t.me/{channel_name}"
+
+        text_with_br = escape(clean_msg).replace('\n', '<br>')
+        posts.append({
+            "text_html": text_with_br,
+            "date": date_str,
+            "link": link,
+            "plain_text": clean_msg
+        })
+        count += 1
+    return posts
+
+# دریافت پست‌های همه کانال‌ها
+all_data = {}
+for ch in CHANNELS:
+    all_data[ch] = fetch_channel_posts(ch, LIMIT_PER_CHANNEL)
+
+# ---------- ساخت HTML با چند بخش (هر کانال یک بخش) ----------
+def make_card(post, channel_name):
+    copy_text_escaped = post['plain_text'].replace('\\', '\\\\').replace("'", "\\'").replace('"', '&quot;')
     return f'''
     <div class="card">
         <div class="card-header">
             <div class="avatar">📢</div>
             <div class="meta">
-                <a href="https://t.me/{CHANNEL}" class="channel-name" target="_blank">@{CHANNEL}</a>
+                <a href="https://t.me/{channel_name}" class="channel-name" target="_blank">@{channel_name}</a>
                 <div class="date">{post['date']}</div>
             </div>
         </div>
@@ -94,19 +88,32 @@ def make_card(post):
     </div>
     '''
 
-cards_html = ''.join([make_card(p) for p in posts_data])
+# ساخت HTML نهایی
+html_parts = []
+for ch, posts in all_data.items():
+    if not posts:
+        continue
+    html_parts.append(f'<div class="channel-section"><h2 class="section-title">📌 کانال @{ch}</h2>')
+    for post in posts:
+        html_parts.append(make_card(post, ch))
+    html_parts.append('</div>')
+
+if not html_parts:
+    html_parts.append('<div class="card">هیچ پستی یافت نشد</div>')
+
+cards_html = ''.join(html_parts)
 
 html_output = f"""<!DOCTYPE html>
 <html dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>آخرین پست‌های @{CHANNEL}</title>
+    <title>آخرین پست‌های کانال‌های منتخب</title>
     <style>
         * {{ margin:0; padding:0; box-sizing:border-box; }}
         body {{
             background: #eef2f7;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Tahoma, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Tahoma, sans-serif;
             padding: 20px 12px 40px;
             direction: rtl;
         }}
@@ -126,6 +133,14 @@ html_output = f"""<!DOCTYPE html>
         }}
         .channel-badge span {{ font-size: 28px; }}
         .channel-badge h1 {{ font-size: 20px; font-weight: 600; color: #1e2a3a; }}
+        .section-title {{
+            font-size: 18px;
+            font-weight: 600;
+            margin: 24px 0 12px 0;
+            padding-right: 8px;
+            border-right: 4px solid #29b6f6;
+            color: #1e2a3a;
+        }}
         .card {{
             background: white;
             border-radius: 24px;
@@ -216,13 +231,13 @@ html_output = f"""<!DOCTYPE html>
 <div class="container">
     <div class="header">
         <div class="channel-badge">
-            <span>📱</span>
-            <h1>@{CHANNEL}</h1>
+            <span>📡</span>
+            <h1>آخرین پست‌های کانال‌ها</h1>
         </div>
     </div>
     {cards_html}
     <div class="footer">
-        منبع: t.me/{CHANNEL} • به‌روزرسانی خودکار هر ۲ ساعت
+        به‌روزرسانی خودکار هر ۲ ساعت • {len(CHANNELS)} کانال
     </div>
 </div>
 <script>
@@ -245,7 +260,8 @@ html_output = f"""<!DOCTYPE html>
 with open('telegram-posts.html', 'w', encoding='utf-8') as f:
     f.write(html_output)
 
+# ذخیره داده‌های همه کانال‌ها در یک JSON
 with open('posts_formatted.json', 'w', encoding='utf-8') as f:
-    json.dump(posts_data, f, ensure_ascii=False, indent=2)
+    json.dump(all_data, f, ensure_ascii=False, indent=2)
 
-print("✅ فایل‌های زیبا و حرفه‌ای ذخیره شدند")
+print("✅ فایل‌های چند کاناله با موفقیت ذخیره شدند")

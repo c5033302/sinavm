@@ -4,7 +4,7 @@ import json
 import re
 from html import escape
 
-CHANNEL = 'sinavm'   # نام کانال (بدون @)
+CHANNEL = 'vpnbyamoo'   # نام کانال (بدون @)
 LIMIT = 5
 
 def clean_text(text):
